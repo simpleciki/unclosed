@@ -24,6 +24,23 @@ problem. Three failures hide inside a confident answer:
 result. It reports the traversal -- evidence, magnitude accounted for,
 alternatives not ruled out, and branches never explored -- instead of a verdict.
 
+## What it gets wrong
+
+[`examples/miss-rate.txt`](examples/miss-rate.txt) is the evaluation: indices
+whose truth is known because they were generated, scored against what the gates
+said about them, with misses and false alarms counted separately rather than
+averaged into one number.
+
+It reports a detection floor, an estimator error the two-estimator probe does
+not bound, and two defects it found in this skill. The first was a concentration
+confirmed on a negative control in 3 runs of 5, which the documentation had
+called impossible; that one is fixed, and the harness measures the fix. The
+second is a limit of the fix -- a permanently slower subgroup is confirmed as a
+concentration in 5 runs of 5 -- and it is open.
+
+Any of those would have been cheaper to leave out. A skill that publishes a miss
+rate and omits the miss its own harness found is not publishing a miss rate.
+
 ## Layout
 
 This repository mirrors the target path in
@@ -33,8 +50,9 @@ so that contribution is a copy rather than a reorganization:
 ```
 skills/opensearch-skills/observability/unclosed/SKILL.md
 scripts/seed_logs.py      synthetic fixtures (stdlib only)
+eval/                     corpus with known truth, and the scoring
 tests/                    no running cluster required
-examples/                 captured runs
+examples/                 captured runs, including the miss rate
 ```
 
 ## Running the fixtures

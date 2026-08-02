@@ -70,8 +70,11 @@ missing link. That is a successful run.
   "is X real, and what would it take to prove it".
 - **Reuses [`ppl-reference.md`](../ppl-reference.md)** rather than restating PPL
   syntax.
-- **Publishes its own miss rate.** The evaluation reports cases this skill fails
-  to catch, including at least one case with no discoverable cause.
+- **Publishes its own miss rate.** [`examples/miss-rate.txt`](../../../../examples/miss-rate.txt)
+  reports what this skill fails to catch, measured against a corpus whose truth
+  is known because it was generated — including a case with no discoverable
+  cause, a detection floor for the concentration probe, and a defect the
+  evaluation found in the skill itself.
 
 ## Gates
 
@@ -275,28 +278,116 @@ which report sample size while looking like they report concentration:
   +21.75%** above the true value at n=200, and smaller subgroups are worse
 
 Both are Gate 1's `population_shift` confound rebuilt one gate up. The median
-survives estimation at these sizes. Once a concentration is established that
-way, removal is a fair way to *size* it.
+survives estimation at these sizes.
+
+**And the gap is judged against a null, not a threshold.** Some value's median is
+always higher than the rest's, so the question is never whether a gap exists but
+whether this one is larger than the labels produce by accident. The group labels
+are shuffled over the same documents a few hundred times, and each shuffle yields
+a largest-subgroup-gap; together they are the distribution of that statistic when
+the labels carry no information, at these subgroup sizes and on this data's own
+spread. A gap in the top 5% of that distribution is confirmed; one at its middle
+is the dimension being ruled out; between them is *elevated, not established*.
+
+The null has to be a null of the **maximum**, because the probe reports the
+largest gap among several values — comparing a maximum against the null of a
+single comparison fires on the most extreme of four groups far more often than
+the declared rate, which is the same error as reading the highest bucket in a
+chart as though someone had nominated it in advance.
+
+This replaced a constant that required the gap to reach 50% of the window's own
+median rise. Noise between medians scales with the spread of the data, so a fixed
+share is too strict at one scale and too lax at another; the evaluation caught it
+being both. Once a concentration stands out from the null, removal is a fair way
+to *size* it.
 
 ### Known limits
 
-**The concentration probe is under-powered.** On a few hundred documents split
-across a handful of values, one subgroup's median differs from the rest's by
-20–30% of the window's own movement *with no concentration present* — measured
-on a fixture where the true concentration is zero. Answering that correctly
-needs a null estimated at the same subgroup sizes, which is not built. Choosing
-a threshold that happens to clear this fixture would be fitting the constant to
-the data it is graded on. So the probe stops at `INCONCLUSIVE` in that band and
-shows its numbers: a genuine concentration below roughly half the median rise is
-reported as *elevated, not established*. It under-claims, never over-claims, and
-the miss is counted rather than hidden.
+Every figure below is measured rather than estimated, and the run that produced
+it is in [`examples/miss-rate.txt`](../../../../examples/miss-rate.txt).
+
+**The concentration probe is under-powered.** Reliable detection begins at a
+true concentration of **68% of the window's own median rise**, measured across a
+graded sweep with five independently generated datasets at each strength. Below
+that, a genuine concentration is reported as *elevated, not established*: at 47%
+it is found in 4 runs of 5, at 24% in 1, and at 14% in none.
+
+**A subgroup that is permanently slower is confirmed as a concentration, every
+time.** The null is built by shuffling the group labels within the focus window,
+which asks whether the gap is larger than chance produces — not whether the gap
+is *new*. On a fixture where one endpoint runs four times slower in every bucket
+and the whole index then rises by the same amount, the subgroup gap is unchanged
+and explains none of the rise, and the probe confirms it in **5 runs of 5**. The
+answer is a null drawn from the baseline windows rather than from shuffled
+labels, and it is not built. Until it is, read a `CONFIRMED` concentration as
+*this subgroup is slower*, which is weaker than *this subgroup got slower*.
+
+**The 5% is per dimension and four are tested**, so a run carries roughly an 18%
+chance of confirming something somewhere when nothing is concentrated anywhere.
+
+An earlier version of this probe used a constant instead of a null — the excess
+had to reach 50% of the window's own median rise — and the same harness caught
+that failing in both directions at once, including confirming a concentration on
+an index where nothing had happened in 3 runs of 5. Both directions came from
+the same absence.
 
 **Two estimators are not a confidence interval.** The eighth probe establishes
 that the reading is not an artifact of one particular method. It does not bound
-the error — both estimators could be wrong in the same direction, and on these
-fixtures both read high against the exact value. What it rules out is the
-failure where the whole effect belongs to the estimator; what it does not
-provide is a true measurement uncertainty.
+the error — both estimators can be wrong in the same direction, and on these
+fixtures they are. Measured: the divergence between the two rulers fails to
+cover `tdigest`'s actual distance from the exact value in **21 of 35** runs, most
+sharply where `tdigest` reads 75% high while the two rulers differ by 43%. What
+the probe rules out is the failure where the whole effect belongs to the
+estimator. What it does not provide is a measurement uncertainty — and the
+narration guard refuses the vocabulary that would imply otherwise.
+
+## Reporting a run
+
+Nothing here calls a model. The agent reading this already is one, and that is
+the last place the refusal can be undone: three gates spend their whole design
+declining to name a cause, and then the summary that reaches a human puts one
+back. The final step is the one step this skill does not control.
+
+So it is checked rather than trusted. After writing a summary of a run, pass it
+through the guard before showing it to anyone:
+
+```bash
+python scripts/provenance_guard.py --report run.txt --narration summary.txt
+```
+
+Two rules, and the first is not a matter of taste:
+
+**Every number in the summary must already appear in the report.** Not derivable
+from it — present in it. A ratio computed while writing the sentence is exactly
+where a fabricated figure hides, and it is indistinguishable from a real one
+because it is formatted identically and sits inside a true statement. Rounding
+to fewer decimals is fine; stating a number more finely than it was measured is
+not. If a derived figure is worth reporting, the derivation belongs in a gate,
+where it is tested, mutation-verified, and printed with its inputs.
+
+**Three phrasings are refused**, because each contradicts the report being
+summarised: naming a cause, asserting closure when the chain did not close, and
+calling the two-estimator divergence a confidence interval or a margin of error.
+
+The numeric half is exact — a number is either in the report or it is not. The
+phrasing half is lexical: a floor under the obvious failure, not a proof, and
+the guard says so rather than issuing a clean bill of health.
+
+## Evaluation
+
+`eval/` generates indices whose truth is known because it made them, runs all
+three gates over each, and scores the answers. Misses and false alarms are
+counted separately and never averaged: this skill's position is that it would
+rather miss than claim, and one accuracy figure would hide the trade.
+
+```bash
+python eval/run_eval.py --out examples/miss-rate.txt
+```
+
+Each case is run against several independently generated datasets. One draw
+cannot distinguish a rule that holds from noise that fell kindly — and the
+over-claim documented under **Known limits** appears in roughly half of runs,
+which a single-draw evaluation reports as a clean sweep.
 
 ## Development fixtures
 
