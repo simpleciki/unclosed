@@ -186,6 +186,23 @@ class Node:
                 "on evidence Gate 2 never established"
             )
 
+        # No double counting, enforced by shape rather than by convention.
+        #
+        # "The deploy accounts for 380ms" and "the new query plan under it
+        # accounts for 380ms" are the same 380ms described at two depths. Summed,
+        # they explain 760ms of a 400ms effect -- and Gate 3 would report a
+        # closed chain built on counting one thing twice. Requiring the number to
+        # sit at exactly one depth makes that arithmetic impossible to write.
+        if self.magnitude_accounted is not None:
+            deeper = [n.hypothesis for c in self.children for n in c.walk()
+                      if n.magnitude_accounted is not None]
+            if deeper:
+                raise ValueError(
+                    f"node {self.hypothesis!r}: a node whose descendants already account for magnitude "
+                    f"may not account for it too -- that is the same effect counted twice. "
+                    f"Already accounting below: {deeper}"
+                )
+
     # -- shape -------------------------------------------------------------
 
     def walk(self):

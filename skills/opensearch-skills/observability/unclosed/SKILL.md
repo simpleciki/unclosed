@@ -26,9 +26,12 @@ metadata:
 Root-cause analysis for logs that audits its own premise and refuses to name a
 cause it cannot close.
 
-> **Status: under construction (hackathon entry, in development).**
-> The three gates below are specified but not yet implemented. This file is the
-> skeleton; gate contracts land as they are built and mutation-verified.
+> **Status: in development (hackathon entry).**
+> All three gates are implemented and mutation-verified — every rule below has
+> been deliberately broken and the test suite goes red for each. What is not yet
+> built is the retrieval that assembles a Gate 2 tree from a live index; Gate 1
+> has that path (`audit_window.py`), Gates 2 and 3 currently operate on trees
+> handed to them.
 
 ## The problem this addresses
 
@@ -76,7 +79,7 @@ missing link. That is a successful run.
 |---|---|---|
 | 1 | Is the reported observation real, or an artifact of how it was measured? | implemented |
 | 2 | What is the hypothesis space, and which branches were actually traversed? | implemented |
-| 3 | Does the accounted-for magnitude add up to the observed effect? | not started |
+| 3 | Does the accounted-for magnitude add up to the observed effect? | implemented |
 
 ### Gate 1
 
@@ -166,6 +169,52 @@ Evidence collected on one branch is never invalidated by another branch being
 blocked. A traversal that discarded finished work whenever something else was
 open would make an incomplete run indistinguishable from a run that found
 nothing — which is most runs.
+
+### Gate 3
+
+An explanation that covers 8ms of a 400ms regression is not a small
+explanation. It is the wrong one, or a fragment of the right one. Gate 2 passes
+it — every step is true and every alternative is disposed of — so only the
+arithmetic catches it.
+
+| Verdict | Means |
+|---|---|
+| `ACCOUNTED` | the size of the explanation matches the size of the effect |
+| `UNDER_ACCOUNTED` | the confirmed branches explain far less than what happened |
+| `OVER_ACCOUNTED` | they explain far **more** — usually double counting, sometimes a wrong baseline |
+| `NOT_QUANTIFIED` | a confirmed branch carries no number, so the arithmetic cannot run. It names the branch |
+
+`OVER_ACCOUNTED` exists because an explanation that overshoots is exactly as
+unusable as one that falls short, and nothing in an ordinary investigation looks
+for it.
+
+`NOT_QUANTIFIED` is the same discipline Gate 1 applies to `COULD_NOT_RUN`: a
+gate that cannot decide must say which input it lacked, or "cannot decide"
+becomes the place everything goes to hide. It also blocks the quiet substitution
+that this gate is most likely to make — **treating an unmeasured branch as
+contributing zero**, which turns "nobody measured this" into "this contributed
+nothing", an assertion no one made.
+
+**No double counting, enforced by shape.** "The deploy accounts for 380ms" and
+"the query plan under it accounts for 380ms" are one 380ms described at two
+depths; summed, they explain 760ms of a 400ms effect. A node whose descendants
+already account for magnitude may not account for it too, and the constructor
+refuses to build one — so the arithmetic is impossible to write rather than
+merely discouraged.
+
+**The residual is always reported**, whatever the verdict. A chain accounting
+for 92% of the effect leaves 8% nobody has explained. That is a fact about the
+incident, not a rounding error to be absorbed into a pass.
+
+Gate 3 does no filtering of its own: magnitude may only come from `CONFIRMED`
+nodes, and that is enforced upstream at construction. If this gate decided which
+numbers to trust, it would be re-litigating Gate 2's verdicts with less evidence
+than Gate 2 had.
+
+`closes()` is the only place all four conditions are asserted together. A tree
+that satisfies all four is reported as a chain that survived being checked — and
+still not as a cause, because the thing that would license that claim, knowing
+the counterfactual, is not in the logs.
 
 ## Development fixtures
 
