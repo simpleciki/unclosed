@@ -31,27 +31,28 @@ effect would close the chain on "it got slower because it got slower", which is
 the most confident-sounding empty answer available. It is structurally barred
 from carrying magnitude.
 
-Known limit: the concentration probe is under-powered
------------------------------------------------------
-On a window of a few hundred documents split across a handful of values, one
-subgroup's median differs from the rest's by a visible fraction of the window's
-own movement **with no concentration present at all**. Measured on this
-project's own uniformly-distributed fixture, where the true concentration is
-zero, the largest apparent excess runs 20-30% of the window's median rise.
+Concentration is decided against a null, not against a constant
+--------------------------------------------------------------
+An earlier version of this probe required a value's median excess to reach 50%
+of the window's own median rise. The evaluation measured that rule failing in
+both directions at once: it missed a real concentration until it reached 68% of
+the rise, and it confirmed one that did not exist on 3 negative-control runs in
+5 -- because a window whose median moved only by noise still has a median rise
+above zero, so dividing a few milliseconds of subgroup wobble by it produced a
+large share and a CONFIRMED verdict.
 
-Answering that correctly needs a null: how large a gap appears between
-subgroups when nothing is happening, estimated **at the same subgroup sizes**.
-That is a real piece of statistics and it is not built. Picking a threshold that
-happens to clear this fixture would be fitting the constant to the data it is
-graded on, which is the same move as grading a detector against a corpus written
-to match it.
+One cause for both: there was no null. `concentration_null.py` builds one by
+shuffling the group labels over the same documents, several hundred times, and
+asking where the observed excess falls among the results. See that module for
+why the null has to be a null of the maximum, and why an empirical p of zero is
+never printed.
 
-So the probe stops at INCONCLUSIVE in that band and shows the numbers it
-measured. It under-claims: a genuine concentration below ~50% of the median rise
-is reported as "elevated, not established" rather than found. That is a miss,
-it is the safe direction of one -- it never closes a chain it should not -- and
-it is counted in the evaluation's miss rate rather than left for a reader to
-discover.
+The rate of confirming something that is not there is now a declared 5% rather
+than a consequence of an arbitrary constant, and examples/miss-rate.txt reports
+what that choice actually costs -- along with the assumption it rests on, which
+is that under the null any request could equally have carried any label. A
+subgroup that is *permanently* slower violates that, and the corpus contains a
+case built to find out how badly.
 
 Standard library only.
 """
@@ -63,32 +64,28 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from typing import NamedTuple, Optional
 
 sys.path.insert(0, __file__.rsplit("assemble_traversal.py", 1)[0])
 from audit_window import build_observation  # noqa: E402
 from closure_audit import audit_closure, closes  # noqa: E402
+from concentration_null import MIN_SUBPOP_N as NULL_MIN_N  # noqa: E402
+from concentration_null import assess  # noqa: E402
 from premise_audit import Verdict, audit, estimator_divergence  # noqa: E402
 from traversal import Gate1Carryover, Node, NodeState, Traversal  # noqa: E402
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:9250"
 
-#: A value's own p99 must exceed the rest of the window's by at least this share
-#: of the observed effect before the effect counts as concentrated in it.
-CONCENTRATION_SHARE = 0.50
-
-#: Below this, no value's distribution stands out and the dimension is not where
-#: the answer lives.
-SPREAD_SHARE = 0.10
-
-#: Both sides of the comparison need this many documents. Below it a percentile
-#: is not estimable, and a probe that answered anyway would be reporting sample
-#: size while appearing to report concentration -- the same confound Gate 1's
-#: population_shift guard exists to prevent, one gate up.
-MIN_SUBPOP_N = 30
-
 #: A shift that reaches the median is not a tail-only event. Expressed as a
 #: fraction of the p99 movement so it scales with the incident.
 MEDIAN_SHIFT_SHARE = 0.10
+
+#: Documents read from the focus window for the permutation test. Larger than
+#: any window this project's fixtures produce, so the null is normally estimated
+#: on the whole window. When a real window exceeds it the test is still valid --
+#: observed statistic and null come from the same sample -- but it is a test on
+#: that sample, and the report says so rather than implying otherwise.
+SAMPLE_CAP = 5000
 
 
 def _post(endpoint, path, body):
@@ -121,6 +118,26 @@ def _terms(endpoint, index, query, field, size=20):
     return _post(endpoint, f"/{index}/_search", body)["aggregations"]["t"]["buckets"]
 
 
+def _sample(endpoint, index, query, metric, dimensions, cap=SAMPLE_CAP):
+    """Raw values from the focus window, once, for every dimension at the same time.
+
+    The permutation test needs the documents themselves -- an aggregation
+    returns summaries, and a summary cannot be shuffled. Fetching once for all
+    dimensions keeps this to a single extra request per run rather than one per
+    hypothesis.
+    """
+    body = {"size": cap, "query": query, "_source": [metric] + list(dimensions)}
+    res = _post(endpoint, f"/{index}/_search", body)
+    total = res["hits"]["total"]
+    total = total["value"] if isinstance(total, dict) else total
+    rows = []
+    for hit in res["hits"]["hits"]:
+        src = hit["_source"]
+        if metric in src:
+            rows.append(src)
+    return rows, bool(total and total > len(rows))
+
+
 # --------------------------------------------------------------------------
 # The declared hypothesis space
 # --------------------------------------------------------------------------
@@ -148,13 +165,13 @@ OUT_OF_INDEX = (
 
 
 def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_p99,
-                        observed_effect, median_rise):
+                        sample, truncated):
     """Is one value of this dimension slower than the rest of the same window?
 
-    Asked on the **median**, and the choice is the whole probe.
+    Asked on the **median**, and against a **null**. Both choices are the probe.
 
-    Two wrong ways to ask it, both of which report sample size while appearing
-    to report concentration:
+    The median, because the two obvious alternatives report sample size while
+    appearing to report concentration:
 
       remove the value and re-measure the window. Taking 198 of 200 documents
       out moves p99 whatever those documents were.
@@ -162,83 +179,69 @@ def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_
       compare the value's own p99 to the rest's. A p99 estimated on n=49 is
       noisy and biased high -- measurably so: on this project's own fixtures
       the aggregation reads between +0.14% and +21.75% above the true value at
-      n=200, and smaller subgroups are worse. Differences that size appear
-      between subgroups drawn from one identical distribution.
+      n=200, and smaller subgroups are worse.
 
-    Both are Gate 1's population_shift confound rebuilt one gate up. The median
-    survives estimation at these sizes, and a subgroup that is genuinely slower
-    moves it. A subgroup whose p99 is elevated but whose median matches the rest
-    has a fat tail, not a slowdown -- and declining to confirm that is the
-    conservative reading, not a miss.
+    Both are Gate 1's population_shift confound rebuilt one gate up.
 
-    Once a concentration is established this way, removal is a fair way to
+    The null, because a median gap between subgroups is never zero and a
+    constant cannot say when one is large. Shuffling the labels over the same
+    documents produces the distribution of that gap when the labels mean
+    nothing, at these sizes and on this data's own spread -- see
+    `concentration_null.py`. A constant expressed as a share of anything is
+    blind to scale, and the evaluation caught the earlier one failing in both
+    directions because of it.
+
+    Once a concentration stands out from the null, removal is a fair way to
     *size* it in the metric the observation was made in.
+
+    Returns `(confirmed_value, node)`. The value is returned rather than parsed
+    back out of the node's text later: a reader that has to recover structure
+    from a sentence is one rewording away from silently finding nothing.
     """
-    probe = f"compared each `{dim}` value's own median against the rest of the same window"
-    if median_rise is None or median_rise <= 0:
-        return None, Node(
-            statement, NodeState.INCONCLUSIVE, probe=probe,
-            evidence=("the window's own median did not rise, so this is a tail-only event and the "
-                      "median cannot localise it; a percentile estimated on one value's documents "
-                      "would be reporting subgroup size instead"),
-        )
-    buckets = _terms(endpoint, index, focus_q, dim)
-    if len(buckets) < 2:
-        only = buckets[0]["key"] if buckets else "nothing"
+    probe = (f"compared each `{dim}` value's median against the rest of the window, and against "
+             f"the gap that shuffling the labels produces at the same subgroup sizes")
+
+    rows = [r for r in sample if dim in r]
+    labels = {r[dim] for r in rows}
+    if len(labels) < 2:
+        only = next(iter(labels)) if labels else "nothing"
         return None, Node(
             statement, NodeState.INCONCLUSIVE, probe=f"grouped the focus window by `{dim}`",
             evidence=(f"only one value present ({only}); a dimension with nothing to compare "
                       "cannot separate a concentrated rise from a uniform one"),
         )
 
-    total = sum(b["doc_count"] for b in buckets)
-    excesses, too_small = [], []
-    for b in buckets:
-        n_in, n_out = b["doc_count"], total - b["doc_count"]
-        if n_in < MIN_SUBPOP_N or n_out < MIN_SUBPOP_N:
-            too_small.append(f"{b['key']} (n={n_in} vs {n_out})")
-            continue
-        inside = {"bool": {"must": [focus_q, {"term": {dim: b["key"]}}]}}
-        outside = {"bool": {"must": [focus_q], "must_not": [{"term": {dim: b["key"]}}]}}
-        p_in = _percentiles(endpoint, index, inside, metric, [50]).get("50.0")
-        p_out = _percentiles(endpoint, index, outside, metric, [50]).get("50.0")
-        if p_in is None or p_out is None:
-            continue
-        excesses.append((b["key"], n_in, p_in, p_out, p_in - p_out))
-
-    if not excesses:
+    result = assess([float(r[metric]) for r in rows], [r[dim] for r in rows],
+                    sample_truncated=truncated)
+    if result.excess is None:
         return None, Node(
             statement, NodeState.INCONCLUSIVE, probe=probe,
-            evidence=(f"no value has {MIN_SUBPOP_N} documents on both sides of the comparison "
-                      f"({'; '.join(too_small)}); at that size the comparison would be reporting "
-                      "subgroup size, not concentration"),
+            evidence=(f"no value has {NULL_MIN_N} documents on both sides of the comparison "
+                      f"({'; '.join(result.too_small)}); at that size the comparison would be "
+                      "reporting subgroup size, not concentration"),
         )
 
-    value, n_in, p_in, p_out, excess = max(excesses, key=lambda e: e[4])
-    share = excess / median_rise
-    ev = (f"`{dim}={value}` (n={n_in}) has median {p_in:.2f} against {p_out:.2f} for the rest of the "
-          f"window -- {excess:+.2f}, or {share:.0%} of the window's own median rise of "
-          f"{median_rise:+.2f}; largest of {len(excesses)} values compared")
-    if too_small:
-        ev += f"; {len(too_small)} value(s) too small to compare"
+    ev = result.describe()
+    value = result.group
 
-    if share >= CONCENTRATION_SHARE:
-        # Now that the concentration is established without reference to sample
-        # size, removal is a fair way to size it.
+    if result.stands_out:
         without = {"bool": {"must": [focus_q], "must_not": [{"term": {dim: value}}]}}
         p = _percentiles(endpoint, index, without, metric, [99]).get("99.0")
         drop = focus_p99 - p if p is not None else None
         if drop is None:
-            return None, Node(f"{statement} ({dim}={value})", NodeState.CONFIRMED, probe=probe,
-                              evidence=ev + " -- concentrated, but removing it left nothing to measure against")
-        return drop, Node(f"{statement} ({dim}={value})", NodeState.CONFIRMED, probe=probe,
-                          evidence=ev + f"; removing it takes the window down by {drop:+.2f}",
-                          magnitude_accounted=round(drop, 2))
-    if share < SPREAD_SHARE:
+            return value, Node(f"{statement} ({dim}={value})", NodeState.CONFIRMED, probe=probe,
+                               evidence=ev + " -- stands out from the null, but removing it left "
+                                             "nothing to measure against")
+        return value, Node(f"{statement} ({dim}={value})", NodeState.CONFIRMED, probe=probe,
+                           evidence=ev + f"; removing it takes the window down by {drop:+.2f}",
+                           magnitude_accounted=round(drop, 2))
+    if result.is_ordinary:
         return None, Node(statement, NodeState.RULED_OUT, probe=probe,
-                          evidence=ev + " -- no value's distribution stands out; the rise is spread")
+                          evidence=ev + " -- at or below what shuffled labels produce; "
+                                        "the rise is spread")
     return None, Node(statement, NodeState.INCONCLUSIVE, probe=probe,
-                      evidence=ev + " -- elevated, but not enough to say the effect lives here")
+                      evidence=ev + " -- elevated, but not beyond what the labels produce by "
+                                    "chance; not enough to say the effect lives here")
 
 
 def _shape_node(endpoint, index, metric, focus_q, baseline_q, observed_effect):
@@ -271,25 +274,58 @@ def _shape_node(endpoint, index, metric, focus_q, baseline_q, observed_effect):
                  evidence=ev + " -- the median held; this is a tail-only event"), median_shift)
 
 
+class Assembled(NamedTuple):
+    """Everything one run produced, named rather than positional.
+
+    `observation` and `concentrations` are here so that a caller checking this
+    tool's answers -- the evaluation harness, most of all -- reads structure
+    instead of re-parsing the report's prose. A grader that recovers its facts
+    from rendered sentences fails silently the first time a sentence is reworded,
+    and reports a perfect score while measuring nothing.
+    """
+
+    premise: object
+    traversal: Traversal
+    observed_effect: float
+    uncertainty: Optional[float]
+    observation: object
+    #: (dimension, value) pairs the traversal ended up CONFIRMING -- after the
+    #: single-carrier rule below, not before it.
+    concentrations: tuple
+
+
 def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, lookback_hours,
-             focus_window=None, reported_at=None):
+             focus_window=None, reported_at=None) -> Assembled:
     obs, focus = build_observation(endpoint, index, metric, time_field, dimension,
                                    bucket_minutes, lookback_hours, focus_window, reported_at)
     premise = audit(obs)
 
     observed_effect = obs.focus_value - obs.baseline_value
+
+    # The refusal is structural, not cosmetic. Below an artifact there is no
+    # hypothesis space worth walking -- and a traversal that gets built and then
+    # merely goes unprinted is one refactor away from being printed. `traversal`
+    # is None here because there is nothing to traverse, which is a different
+    # statement from an empty tree.
+    if premise.verdict is Verdict.ARTIFACT:
+        return Assembled(premise, None, observed_effect, estimator_divergence(obs), obs, ())
+
     focus_q = _window(time_field, obs.window_start, obs.window_end)
     baseline_q = {"bool": {"must_not": [focus_q]}}
 
-    # The shape reading comes first: it produces the window's own median rise,
-    # which is what the concentration probes measure a subgroup against.
-    shape, median_rise = _shape_node(endpoint, index, metric, focus_q, baseline_q, observed_effect)
+    shape, _ = _shape_node(endpoint, index, metric, focus_q, baseline_q, observed_effect)
 
-    children = []
+    # One fetch of the raw window, shared by every dimension. The permutation
+    # test shuffles documents, and a summary cannot be shuffled.
+    sample, truncated = _sample(endpoint, index, focus_q, metric,
+                                [dim for dim, _ in CONCENTRATION_DIMENSIONS])
+
+    children, candidates = [], []
     for dim, statement in CONCENTRATION_DIMENSIONS:
-        _, node = _concentration_node(endpoint, index, dim, statement, metric,
-                                      focus_q, obs.focus_value, observed_effect, median_rise)
+        value, node = _concentration_node(endpoint, index, dim, statement, metric,
+                                          focus_q, obs.focus_value, sample, truncated)
         children.append(node)
+        candidates.append((dim, value))
 
     # At most one dimension may carry magnitude. Two dimensions that each
     # isolate the window may be isolating the *same documents* seen from two
@@ -306,6 +342,15 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
                           "strongly, and these may be the same documents seen from two angles; "
                           "not independently established"),
             )
+
+    # Read after the single-carrier rule, never before it: a dimension that was
+    # downgraded above is not a finding, and a scorer told otherwise would credit
+    # the tool with a confirmation it withdrew.
+    concentrations = tuple(
+        (dim, value)
+        for (dim, value), node in zip(candidates, children)
+        if value is not None and node.state is NodeState.CONFIRMED
+    )
 
     children.append(shape)
     for statement, needs in OUT_OF_INDEX:
@@ -325,7 +370,8 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
         root=root,
         gate1=Gate1Carryover(premise.verdict.value, tuple(premise.missing_inputs)),
     )
-    return premise, traversal, observed_effect, estimator_divergence(obs)
+    return Assembled(premise, traversal, observed_effect, estimator_divergence(obs),
+                     obs, concentrations)
 
 
 def main() -> int:
@@ -341,9 +387,10 @@ def main() -> int:
     ap.add_argument("--reported-at", default=None)
     args = ap.parse_args()
 
-    premise, traversal, observed_effect, uncertainty = assemble(
-        args.endpoint, args.index, args.metric, args.time_field, args.dimension,
-        args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at)
+    run = assemble(args.endpoint, args.index, args.metric, args.time_field, args.dimension,
+                   args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at)
+    premise, traversal = run.premise, run.traversal
+    observed_effect, uncertainty = run.observed_effect, run.uncertainty
 
     print("=" * 78)
     print(premise.to_text())
