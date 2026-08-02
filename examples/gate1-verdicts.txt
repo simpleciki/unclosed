@@ -1,0 +1,48 @@
+﻿Gate 1 verdicts captured 2026-08-01 against opensearchproject/opensearch:2.19.3 on 127.0.0.1:9250
+Reproduce: python scripts/seed_logs.py --scenario <name> --recreate (seed 20260801)
+
+=============== unclosed-fake-spike ===============
+INDEX: unclosed-fake-spike    FOCUS WINDOW: 2026-08-02T01:30:00.000Z (+10m)
+VERDICT: ARTIFACT
+OBSERVATION: latency_ms in focus window = 2210.7 vs baseline 325.65 (6.8x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [REFUTED      ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=3 vs baseline typical n=200 (ratio 0.015) -- below n=30 or 25% of baseline
+  [COULD_NOT_RUN] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       focus window holds 3 documents; composition is not estimable at that size
+       MISSING: at least 30 documents in the focus window to compare composition (have 3)
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 1.8s vs baseline 2.3s (0.8x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+The observation is explained by how it was measured: sample_size_collapse.
+No causal investigation should proceed from this premise.
+
+=============== unclosed-real-spike ===============
+INDEX: unclosed-real-spike    FOCUS WINDOW: 2026-08-02T01:30:00.000Z (+10m)
+VERDICT: SUBSTANTIATED
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Every refutation attempt ran and every one failed. The observation stands.
+This pass rests on the record above, not on the absence of a complaint.
+

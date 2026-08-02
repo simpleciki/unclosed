@@ -66,6 +66,12 @@ INDEX_MAPPING = {
             # -- when the event happened, or when it was indexed -- is one of
             # the premises Gate 1 has to interrogate rather than assume.
             "@timestamp": {"type": "date"},
+            # Second clock. Real pipelines (OpenTelemetry, Fluent Bit, Logstash)
+            # carry both, and the gap between them is what makes a replay or a
+            # backfill distinguishable from a live regression. Without a second
+            # clock the timestamp-semantics probe cannot run at all -- which is
+            # a legitimate UNDECIDABLE, not something to paper over.
+            "ingested_at": {"type": "date"},
             "service": {"type": "keyword"},
             "endpoint": {"type": "keyword"},
             "region": {"type": "keyword"},
@@ -94,21 +100,29 @@ def _latency(rng: random.Random, median_ms: float, sigma: float) -> float:
     return round(rng.lognormvariate(math.log(median_ms), sigma), 2)
 
 
+def _iso(dt: datetime) -> str:
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def _doc(rng: random.Random, event_time: datetime, latency: float, ingest_lag_s: float | None = None):
+    """One log line. `ingest_lag_s` defaults to a small, plausible pipeline delay."""
+    lag = rng.uniform(0.5, 4.0) if ingest_lag_s is None else ingest_lag_s
+    return {
+        "@timestamp": _iso(event_time),
+        "ingested_at": _iso(event_time + timedelta(seconds=lag)),
+        "service": "storefront",
+        "endpoint": rng.choice(ENDPOINTS),
+        "region": rng.choice(REGIONS),
+        "status": 200 if rng.random() > 0.02 else 500,
+        "latency_ms": latency,
+    }
+
+
 def _bucket_docs(rng: random.Random, start: datetime, volume: int, median_ms: float, sigma: float):
     docs = []
     for _ in range(volume):
         offset = rng.uniform(0, BUCKET_MINUTES * 60)
-        latency = _latency(rng, median_ms, sigma)
-        docs.append(
-            {
-                "@timestamp": (start + timedelta(seconds=offset)).isoformat().replace("+00:00", "Z"),
-                "service": "storefront",
-                "endpoint": rng.choice(ENDPOINTS),
-                "region": rng.choice(REGIONS),
-                "status": 200 if rng.random() > 0.02 else 500,
-                "latency_ms": latency,
-            }
-        )
+        docs.append(_doc(rng, start + timedelta(seconds=offset), _latency(rng, median_ms, sigma)))
     return docs
 
 
@@ -136,18 +150,7 @@ def build_documents(scenario: str, seed: int, now: datetime):
             # Volume collapsed. Nothing got slower; there is just almost no data,
             # and what remains happens to include two slow calls.
             for latency in (110.4, 1850.2, 2210.7):
-                docs.append(
-                    {
-                        "@timestamp": (start + timedelta(seconds=rng.uniform(0, 600)))
-                        .isoformat()
-                        .replace("+00:00", "Z"),
-                        "service": "storefront",
-                        "endpoint": rng.choice(ENDPOINTS),
-                        "region": rng.choice(REGIONS),
-                        "status": 200,
-                        "latency_ms": latency,
-                    }
-                )
+                docs.append(_doc(rng, start + timedelta(seconds=rng.uniform(0, 600)), latency))
 
     return docs, spike_bucket_start
 
