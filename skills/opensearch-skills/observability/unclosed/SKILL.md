@@ -75,7 +75,7 @@ missing link. That is a successful run.
 | Gate | Question | Status |
 |---|---|---|
 | 1 | Is the reported observation real, or an artifact of how it was measured? | implemented |
-| 2 | What is the hypothesis space, and which branches were actually traversed? | not started |
+| 2 | What is the hypothesis space, and which branches were actually traversed? | implemented |
 | 3 | Does the accounted-for magnitude add up to the observed effect? | not started |
 
 ### Gate 1
@@ -109,6 +109,63 @@ that selects its own worst bucket will always find one:
   timestamp is what makes provenance checkable rather than typed
 - a window **judged before it finished** is an artifact: the reporter and the
   auditor are looking at two different datasets that share a name
+
+### Gate 2
+
+Gate 1 asked whether the observation is real. This gate asks what was actually
+looked at on the way to explaining it — and records every branch that was named
+and never walked.
+
+A branch is not bought-or-not. Five states divide on **two independent axes**,
+and collapsing them into one loses a fact that the reader needs:
+
+| State | Re-running moves it? | Branch disposed of? | Next action |
+|---|---|---|---|
+| `CONFIRMED` | no | yes | — |
+| `RULED_OUT` | no | yes | — |
+| `INCONCLUSIVE` | no | **no** | needs different evidence, which may not exist |
+| `PENDING` | **yes** | no | wait, then re-run |
+| `NOT_VISITED` | **yes** | no | go and look |
+
+The first axis decides **what to do next**; the second decides **whether a chain
+may close**. `INCONCLUSIVE` is the only state on both — finished work, branch
+still standing — and it is the state that can make a chain *permanently*
+unclosable. That case is not a defect. It is the honest answer, and the
+evaluation contains one.
+
+A confirmed branch closes nothing while an alternative to it is still standing.
+That is the whole gate in one sentence: an explanation is not established by
+being found, it is established by the others being disposed of. Reporting the
+first plausible correlate is what this looks like when the alternatives are
+invisible.
+
+**`PENDING` is guarded, or it becomes the escape hatch** that Gate 1's verdict
+precedence exists to close — anything inconvenient gets labelled "not answered
+yet" and the tree never has to close. So it must name **what it awaits** and
+**the moment its state was read**, and the constructor enforces both. A pending
+branch with no timestamp is a claim about a present that has already passed.
+
+**An unverified premise travels with the tree.** An `UNDECIDABLE` verdict from
+Gate 1 does not stop the traversal — the branches below are still worth walking
+and the evidence found there is still real. But Gate 1's missing inputs are
+carried on the tree and keep it open, because otherwise every node can close and
+the report reads as complete while resting on a premise nobody checked.
+
+Closure therefore takes four conditions, and this gate owns three:
+
+1. a root-to-leaf path exists on which every node is `CONFIRMED`
+2. no decision point on it has a live alternative still standing
+3. Gate 1 left no unresolved gap
+4. the accounted-for magnitude adds up to the observed effect — **Gate 3's**, and
+   Gate 2 deliberately does not claim it
+
+A chain that satisfies all of them is reported as *a path with nothing left open
+on it*. It is not a cause, and this skill will not call it one.
+
+Evidence collected on one branch is never invalidated by another branch being
+blocked. A traversal that discarded finished work whenever something else was
+open would make an incomplete run indistinguishable from a run that found
+nothing — which is most runs.
 
 ## Development fixtures
 

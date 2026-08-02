@@ -1,0 +1,32 @@
+Mutation verification (Gate 2) -- captured 2026-08-02
+Each mutation removes one load-bearing rule. A rule whose removal leaves
+the suite green is not being tested by it.
+
+[RED - guard is real] OPEN: let an unruled-out alternative stop blocking closure
+    caught by: test_a_confirmed_branch_does_not_close_while_a_sibling_is_inconclusive, test_every_state_lands_on_exactly_one_side_of_each_axis, test_inconclusive_is_settled_and_still_open
+[RED - guard is real] closed_chains(): block only on movable branches, not on live alternatives
+    caught by: test_a_confirmed_branch_does_not_close_while_a_sibling_is_inconclusive
+[RED - guard is real] Node: allow PENDING without naming what it awaits
+    caught by: test_pending_must_name_what_it_awaits
+[RED - guard is real] Node: allow PENDING without recording when its state was read
+    caught by: test_pending_must_record_the_moment_its_state_was_read
+[RED - guard is real] Gate1Carryover: stop carrying an unverified premise into the tree
+    caught by: test_a_gate1_gap_keeps_the_tree_open_even_when_every_node_closed
+[RED - guard is real] Node: let an unconfirmed branch contribute to the magnitude arithmetic
+    caught by: test_only_a_confirmed_node_may_account_for_magnitude
+[RED - guard is real] Node: let a branch nobody walked carry evidence anyway
+    caught by: test_movable_states_must_not_carry_evidence
+[RED - guard is real] closed_chains(): stop treating an all-ruled-out node as the end of a chain
+    caught by: test_a_chain_closes_only_when_every_alternative_is_disposed_of, test_a_closed_chain_is_never_called_a_cause, test_a_gate1_gap_keeps_the_tree_open_even_when_every_node_closed, test_a_substantiated_premise_carries_no_gap, test_an_undecidable_premise_does_not_stop_the_traversal, test_gate2_does_not_claim_the_magnitude_question
+
+Every mutation ran against the WHOLE suite, not a hand-picked test. Pointing a
+mutation at one chosen test lets the author decide what counts as caught.
+
+The first pass of this run came back GREEN on the two closure mutations: the
+test asserted `is_closed`, which was already False on the strength of the
+reason list alone, so the rule inside closed_chains() was never exercised. The
+test was pinning the wording of the report rather than the traversal. Fixed by
+asserting closed_chains() directly -- the implementation was correct, the test
+was not reaching it.
+
+Restored to original: 47 passed in 0.46s
