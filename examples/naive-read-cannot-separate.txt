@@ -1,0 +1,71 @@
+﻿Captured 2026-08-01 against opensearchproject/opensearch:2.19.3 on 127.0.0.1:9250
+Seed 20260801. Reproduce: python scripts/seed_logs.py --scenario <name> --recreate
+
+The naive read an investigation agent would start from. Both scenarios show
+the same story -- p99 roughly 5x the baseline in the same 10-minute bucket.
+The only column that separates them is n, and no ratio threshold looks at it.
+
+--- unclosed-real-spike ---
+{
+  "schema": [
+    {
+      "name": "p99",
+      "type": "float"
+    },
+    {
+      "name": "n",
+      "type": "integer"
+    },
+    {
+      "name": "t",
+      "type": "timestamp"
+    }
+  ],
+  "datarows": [
+    [
+      2133.935,
+      200,
+      "2026-08-02 00:50:00"
+    ],
+    [
+      431.435,
+      200,
+      "2026-08-02 00:10:00"
+    ]
+  ],
+  "total": 2,
+  "size": 2
+}
+
+--- unclosed-fake-spike ---
+{
+  "schema": [
+    {
+      "name": "p99",
+      "type": "float"
+    },
+    {
+      "name": "n",
+      "type": "integer"
+    },
+    {
+      "name": "t",
+      "type": "timestamp"
+    }
+  ],
+  "datarows": [
+    [
+      2210.7,
+      3,
+      "2026-08-02 00:50:00"
+    ],
+    [
+      431.435,
+      200,
+      "2026-08-02 00:10:00"
+    ]
+  ],
+  "total": 2,
+  "size": 2
+}
+

@@ -1,0 +1,26 @@
+# --- Session transcripts: must be ignored in the FIRST commit ---
+# .gitignore cannot untrack files that were already committed. This repository
+# is intended to become public, so the rule has to exist before any commit does.
+docs/session-archive/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- Local environment and secrets ---
+.env
+.env.*
+*.log
+
+# --- Local scratch output (never part of the deliverable) ---
+scratch/
+tmp/
+
+# --- OS ---
+.DS_Store
+Thumbs.db

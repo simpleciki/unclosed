@@ -1,0 +1,25 @@
+[project]
+name = "unclosed"
+version = "0.1.0"
+description = "Log root-cause analysis that audits its own premise and refuses to name a cause it cannot close."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+
+# Runtime dependencies are intentionally empty and must stay that way.
+#
+# Hackathon rule: an Entry "must not contain any code that has any current or
+# future monetary, proprietary, or licensed external dependencies."
+#
+# Everything here is implemented against the Python standard library only
+# (urllib, json, statistics). That turns "no paid or proprietary dependencies"
+# from a claim into a structural fact a reviewer can verify by reading this file.
+dependencies = []
+
+[dependency-groups]
+# Development only. Not shipped with the skill, not a runtime dependency.
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
