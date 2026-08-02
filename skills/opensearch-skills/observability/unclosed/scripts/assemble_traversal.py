@@ -67,7 +67,7 @@ import urllib.request
 sys.path.insert(0, __file__.rsplit("assemble_traversal.py", 1)[0])
 from audit_window import build_observation  # noqa: E402
 from closure_audit import audit_closure, closes  # noqa: E402
-from premise_audit import Verdict, audit  # noqa: E402
+from premise_audit import Verdict, audit, estimator_divergence  # noqa: E402
 from traversal import Gate1Carryover, Node, NodeState, Traversal  # noqa: E402
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:9250"
@@ -325,7 +325,7 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
         root=root,
         gate1=Gate1Carryover(premise.verdict.value, tuple(premise.missing_inputs)),
     )
-    return premise, traversal, observed_effect
+    return premise, traversal, observed_effect, estimator_divergence(obs)
 
 
 def main() -> int:
@@ -341,7 +341,7 @@ def main() -> int:
     ap.add_argument("--reported-at", default=None)
     args = ap.parse_args()
 
-    premise, traversal, observed_effect = assemble(
+    premise, traversal, observed_effect, uncertainty = assemble(
         args.endpoint, args.index, args.metric, args.time_field, args.dimension,
         args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at)
 
@@ -359,9 +359,9 @@ def main() -> int:
     print(traversal.to_text())
     print()
     print("=" * 78)
-    print(audit_closure(traversal, observed_effect).to_text())
+    print(audit_closure(traversal, observed_effect, uncertainty).to_text())
     print()
-    closed, reasons = closes(traversal, observed_effect)
+    closed, reasons = closes(traversal, observed_effect, uncertainty)
     print("=" * 78)
     print("ALL FOUR CONDITIONS: %s" % ("closed" if closed else "NOT CLOSED"))
     for r in reasons:

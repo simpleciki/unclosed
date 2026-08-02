@@ -69,6 +69,29 @@ def discover_fields(endpoint, index, metric):
     return resolved, metric_types, sorted(date_fields)
 
 
+#: Two estimators of the same percentile, both core to every OpenSearch
+#: distribution, neither an extra dependency and neither an extra round trip --
+#: they are sub-aggregations of the same request. Which one a dashboard uses is
+#: a choice that is almost never written down, and at incident-window sample
+#: sizes it changes the number.
+PRIMARY_ESTIMATOR = "tdigest"
+ALT_ESTIMATOR = "hdr"
+HDR_SIGNIFICANT_DIGITS = 3
+
+
+def _percentile_aggs(metric, percents=(99,)):
+    return {
+        PRIMARY_ESTIMATOR: {"percentiles": {"field": metric, "percents": list(percents)}},
+        ALT_ESTIMATOR: {"percentiles": {"field": metric, "percents": list(percents),
+                                        "hdr": {"number_of_significant_value_digits": HDR_SIGNIFICANT_DIGITS}}},
+    }
+
+
+def _read(agg_block, estimator):
+    vals = agg_block[estimator]["values"]
+    return list(vals.values())[0]
+
+
 def bucket_stats(endpoint, index, time_field, metric, bucket_minutes, lookback_hours):
     now = datetime.now(timezone.utc)
     body = {
@@ -77,16 +100,19 @@ def bucket_stats(endpoint, index, time_field, metric, bucket_minutes, lookback_h
         "aggs": {
             "per_bucket": {
                 "date_histogram": {"field": time_field, "fixed_interval": f"{bucket_minutes}m", "min_doc_count": 1},
-                "aggs": {"p99": {"percentiles": {"field": metric, "percents": [99]}}},
+                "aggs": _percentile_aggs(metric),
             }
         },
     }
     res = _get(endpoint, f"/{index}/_search", body)
     out = []
     for b in res["aggregations"]["per_bucket"]["buckets"]:
-        p99 = list(b["p99"]["values"].values())[0]
-        if p99 is not None:
-            out.append({"start": b["key_as_string"], "n": b["doc_count"], "p99": round(p99, 2)})
+        p99 = _read(b, PRIMARY_ESTIMATOR)
+        if p99 is None:
+            continue
+        alt = _read(b, ALT_ESTIMATOR)
+        out.append({"start": b["key_as_string"], "n": b["doc_count"], "p99": round(p99, 2),
+                    "p99_alt": round(alt, 2) if alt is not None else None})
     return out
 
 
@@ -150,6 +176,15 @@ def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, 
     baseline_p99 = statistics.median(b["p99"] for b in others)
     baseline_n = int(statistics.median(b["n"] for b in others))
 
+    # The second estimator's baseline is taken the same way as the first, over
+    # the same buckets. Mixing methods across focus and baseline would put the
+    # divergence between them rather than between the rulers.
+    alt_focus = focus.get("p99_alt")
+    alt_others = [b["p99_alt"] for b in others if b.get("p99_alt") is not None]
+    alt_baseline = statistics.median(alt_others) if alt_others else None
+    if alt_focus is None or alt_baseline is None:
+        alt_focus = alt_baseline = None
+
     f_start = focus["start"]
     f_end = _iso(datetime.fromisoformat(f_start.replace("Z", "+00:00")) + timedelta(minutes=bucket_minutes))
     b_start = others[0]["start"]
@@ -161,6 +196,10 @@ def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, 
         metric=metric,
         focus_value=focus["p99"],
         baseline_value=baseline_p99,
+        focus_value_alt=alt_focus,
+        baseline_value_alt=alt_baseline,
+        estimator=PRIMARY_ESTIMATOR,
+        estimator_alt=ALT_ESTIMATOR if alt_focus is not None else None,
         provenance=provenance,
         window_start=f_start,
         window_end=f_end,

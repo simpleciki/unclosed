@@ -242,3 +242,38 @@ def test_a_near_zero_effect_declines_the_ratio_instead_of_dividing_by_it():
     report = audit_closure(t, 0.0)
     assert report.residual_fraction is None
     assert report.verdict is Accounting.OVER_ACCOUNTED
+
+
+# --- a residual finer than the ruler is not a finding ----------------------
+
+
+def test_the_tolerance_widens_to_the_measurement_and_says_so():
+    """An explanation covering 75% of an effect whose size is only known to
+    within 30% has not fallen short of anything a reader could act on.
+
+    The widening is reported. A pass at a loosened tolerance is a weaker claim
+    and has to read like one, or the report launders imprecision into agreement.
+    """
+    t = tree(confirmed("deploy at 14:18", confirmed("new query plan", accounts=300.0)))
+    strict = audit_closure(t, OBSERVED)
+    assert strict.verdict is Accounting.UNDER_ACCOUNTED  # 25% short of 400
+
+    loose = audit_closure(t, OBSERVED, measurement_uncertainty=0.30)
+    assert loose.verdict is Accounting.ACCOUNTED
+    assert loose.tolerance == pytest.approx(0.30)
+    assert "two estimators disagree" in loose.to_text()
+
+
+def test_a_ruler_more_precise_than_the_tolerance_does_not_tighten_it():
+    """The tolerance is a declaration about what counts as an explanation, not a
+    statistical bound. A sharper ruler does not raise the bar for one."""
+    t = tree(confirmed("deploy at 14:18", confirmed("new query plan", accounts=330.0)))
+    assert audit_closure(t, OBSERVED, measurement_uncertainty=0.02).tolerance == pytest.approx(RESIDUAL_TOLERANCE)
+    assert audit_closure(t, OBSERVED, measurement_uncertainty=0.02).verdict is Accounting.ACCOUNTED
+
+
+def test_closes_carries_the_uncertainty_through():
+    t = tree(confirmed("deploy at 14:18", confirmed("new query plan", accounts=300.0), ruled_out("GC pause")),
+             gate1=Gate1Carryover("SUBSTANTIATED", ()))
+    assert not closes(t, OBSERVED)[0]
+    assert closes(t, OBSERVED, measurement_uncertainty=0.30)[0]

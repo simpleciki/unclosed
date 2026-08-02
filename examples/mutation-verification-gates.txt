@@ -1,10 +1,16 @@
-Mutation verification (Gates 2 and 3) -- captured 2026-08-02
+Mutation verification (all three gates) -- captured 2026-08-02
 Each mutation removes one load-bearing rule. A rule whose removal leaves
 the suite green is not being tested by it.
 
 Every mutation runs the WHOLE suite, not a hand-picked test. Pointing a
 mutation at one chosen test lets the author decide what counts as caught.
 
+[RED - guard is real] Gate 1: drop the estimator probe out of the sweep entirely
+    caught by: test_a_single_estimator_cannot_substantiate_its_own_reading, test_an_effect_only_one_estimator_can_see_is_an_artifact, test_estimators_that_disagree_only_about_size_do_not_refute
+[RED - guard is real] Gate 1: stop refuting an effect only one estimator can see
+    caught by: test_an_effect_only_one_estimator_can_see_is_an_artifact
+[RED - guard is real] Gate 3: claim a residual finer than the ruler that measured it
+    caught by: test_closes_carries_the_uncertainty_through, test_the_tolerance_widens_to_the_measurement_and_says_so
 [RED - guard is real] Gate 2 OPEN: let an unruled-out alternative stop blocking closure
     caught by: test_a_confirmed_branch_does_not_close_while_a_sibling_is_inconclusive, test_every_state_lands_on_exactly_one_side_of_each_axis, test_inconclusive_is_settled_and_still_open
 [RED - guard is real] Gate 2 closed_chains(): block only on movable branches, not on live alternatives
@@ -24,13 +30,13 @@ mutation at one chosen test lets the author decide what counts as caught.
 [RED - guard is real] Gate 3 Node: allow the same effect to be counted at two depths
     caught by: test_a_parent_may_not_account_for_what_its_child_already_accounts_for, test_the_guard_reaches_grandchildren
 [RED - guard is real] Gate 3: widen the residual tolerance until anything passes
-    caught by: test_a_true_chain_that_explains_almost_nothing_is_rejected
+    caught by: test_a_true_chain_that_explains_almost_nothing_is_rejected, test_closes_carries_the_uncertainty_through, test_the_tolerance_widens_to_the_measurement_and_says_so
 [RED - guard is real] Gate 3: stop rejecting explanations that overshoot the effect
     caught by: test_overshooting_is_rejected_too
 [RED - guard is real] Gate 3: treat an unmeasured confirmed branch as if it explained nothing
     caught by: test_one_unmeasured_branch_blocks_the_arithmetic_even_when_another_adds_up
 [RED - guard is real] Gate 3 closes(): ignore the magnitude verdict
-    caught by: test_a_true_chain_that_explains_almost_nothing_is_rejected
+    caught by: test_a_true_chain_that_explains_almost_nothing_is_rejected, test_closes_carries_the_uncertainty_through
 [RED - guard is real] Gate 3 Node: let a branch that restates the observation account for it
     caught by: test_a_branch_that_restates_the_observation_may_not_account_for_it
 [RED - guard is real] Gate 3: count a descriptive branch as a missing measurement
@@ -38,24 +44,4 @@ mutation at one chosen test lets the author decide what counts as caught.
 [RED - guard is real] Gate 3 closes(): ignore everything Gate 2 left open
     caught by: test_a_perfect_magnitude_does_not_close_a_tree_gate2_left_open, test_a_perfect_magnitude_does_not_close_over_an_unverified_premise
 
-Three of these came back GREEN on a first pass. Every time the implementation
-was correct and the test was not reaching it:
-
-  Gate 2 closure -- the test asserted is_closed, already False from the reason
-  list alone, so the rule inside closed_chains() was never exercised. It was
-  pinning the wording of the report rather than the traversal.
-
-  Gate 3 NOT_QUANTIFIED -- the test used a tree where no branch carried a
-  number, so "unquantified is non-empty" and "contributions is empty" were true
-  together and the mutation was a no-op. The case that separates them is the
-  dangerous one: one branch measured at 380 of 400 and a second confirmed branch
-  nobody measured. Without the rule the unmeasured branch is silently treated as
-  contributing zero and the residual reads as 20ms of honest slack.
-
-  A fourth mutation was mis-aimed rather than uncaught -- it was pointed at a
-  test that could not reach the code path. The fix was to stop choosing targets:
-  every mutation now runs the whole suite.
-
-All were found by the mutations, not by review.
-
-Restored to original: 66 passed in 0.49s
+Restored to original: 74 passed in 0.44s

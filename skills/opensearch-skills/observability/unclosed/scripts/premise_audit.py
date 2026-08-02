@@ -110,6 +110,15 @@ class Observation:
     focus_value: float
     baseline_value: float
 
+    # The same two numbers read by a second estimator. A percentile from an
+    # aggregation is not a measurement of the data, it is an estimate computed
+    # from it, and the estimator is a choice nobody records. Two of them applied
+    # to the same documents make that choice visible.
+    focus_value_alt: Optional[float] = None
+    baseline_value_alt: Optional[float] = None
+    estimator: str = "primary"
+    estimator_alt: Optional[str] = None
+
     # --- provenance of the claim itself -----------------------------------
     # Answered before any question about the system, because these decide
     # whether there is a claim to examine at all.
@@ -387,13 +396,90 @@ def probe_measurement_continuity(obs: Observation) -> ProbeResult:
                        ev + " -- one consistent mapping; the ruler did not change")
 
 
+#: Below this share of the primary reading, the second ruler does not see the
+#: effect at all and the spike is a property of the estimator rather than the
+#: system. Above it both rulers see something, and how much they disagree about
+#: its size is carried forward rather than judged here.
+ESTIMATOR_AGREEMENT = 0.50
+
+
+def estimator_divergence(obs: Observation) -> Optional[float]:
+    """How much of the effect's size depends on which estimator measured it.
+
+    Returned as a fraction of the primary reading. `None` when there is no
+    second estimator to compare against -- absent, not zero.
+
+    Gate 3 reads this. An explanation accounting for 80% of an effect whose size
+    is only known to within 30% has not fallen 20% short of anything; claiming
+    it did would be precision the measurement cannot support.
+    """
+    if obs.focus_value_alt is None or obs.baseline_value_alt is None:
+        return None
+    primary = obs.focus_value - obs.baseline_value
+    if not primary:
+        return None
+    alt = obs.focus_value_alt - obs.baseline_value_alt
+    return abs(primary - alt) / abs(primary)
+
+
+def probe_estimator_choice(obs: Observation) -> ProbeResult:
+    """Does the effect survive being measured with a different ruler?
+
+    A percentile aggregation is an estimator with error, and the error is not
+    small at the sizes an incident window has. Measured on this project's own
+    fixtures, the default estimator reads between +0.14% and +21.75% above the
+    true value at n=200 -- and on the negative control that error decides *which
+    bucket gets selected as the incident*, picking one whose true p99 is lower
+    than another's.
+
+    Two estimators of the same quantity, over the same documents, is the cheapest
+    way to make that visible: one extra sub-aggregation in the same request, both
+    built into every OpenSearch distribution.
+
+    Disagreement about *size* does not refute anything -- it is recorded and
+    handed to Gate 3, which cannot claim a residual finer than the ruler.
+    Disagreement about *existence* is a refutation: if one ruler sees a 5x jump
+    and the other sees nothing, the jump belongs to the ruler.
+    """
+    story = "the jump is a property of the estimator, not the system -- a different ruler does not see it"
+    if obs.estimator_alt is None or obs.focus_value_alt is None or obs.baseline_value_alt is None:
+        return ProbeResult(
+            "estimator_choice", story, Outcome.COULD_NOT_RUN,
+            f"only `{obs.estimator}` read this window, so the reading cannot be separated "
+            "from the method that produced it",
+            missing="the same window measured by a second percentile estimator (e.g. hdr alongside tdigest)",
+        )
+
+    primary = obs.focus_value - obs.baseline_value
+    alt = obs.focus_value_alt - obs.baseline_value_alt
+    if not primary:
+        return ProbeResult("estimator_choice", story, Outcome.COULD_NOT_RUN,
+                           "the primary reading shows no effect, so there is nothing to corroborate",
+                           missing="a non-zero observed effect to compare across estimators")
+
+    ratio = alt / primary
+    ev = (f"`{obs.estimator}` sees {primary:+.2f}, `{obs.estimator_alt}` sees {alt:+.2f} "
+          f"over the same documents ({ratio:.0%} as large)")
+    if ratio < ESTIMATOR_AGREEMENT:
+        return ProbeResult("estimator_choice", story, Outcome.REFUTED,
+                           ev + f" -- below {ESTIMATOR_AGREEMENT:.0%}; the effect is substantially "
+                                "an artifact of which estimator was asked")
+    divergence = estimator_divergence(obs)
+    return ProbeResult("estimator_choice", story, Outcome.NOT_REFUTED,
+                       ev + f" -- both rulers see it; they disagree about its size by {divergence:.0%}, "
+                            "which is carried forward rather than absorbed")
+
+
 PROBES = (
     # Provenance first. These decide whether there is a claim to examine before
     # anything asks a question about the system.
     probe_unanchored_report,
     probe_observation_moment,
     probe_who_chose_the_window,
-    # Then the measurement itself.
+    # Then the measurement itself. The ruler comes before what it read: a
+    # number whose size depends on which estimator produced it is not yet a
+    # quantity the later probes can reason about.
+    probe_estimator_choice,
     probe_sample_size,
     probe_population_shift,
     probe_clock_semantics,

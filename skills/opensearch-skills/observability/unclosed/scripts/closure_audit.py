@@ -74,6 +74,8 @@ class ClosureReport:
     accounted: float
     contributions: list = field(default_factory=list)
     unquantified: list = field(default_factory=list)
+    tolerance: float = RESIDUAL_TOLERANCE
+    tolerance_reason: Optional[str] = None
 
     @property
     def residual(self) -> float:
@@ -94,6 +96,9 @@ class ClosureReport:
         frac = self.residual_fraction
         share = f" ({frac:+.1%} of the effect)" if frac is not None else ""
         lines.append(f"  unexplained       {self.residual:+.2f}{share}")
+        lines.append(f"  tolerance         {self.tolerance:.0%}")
+        if self.tolerance_reason:
+            lines.append(f"                    {self.tolerance_reason}")
         lines.append("")
 
         if self.contributions:
@@ -125,13 +130,22 @@ class ClosureReport:
         return "\n".join(lines)
 
 
-def audit_closure(traversal: Traversal, observed_effect: float) -> ClosureReport:
+def audit_closure(traversal: Traversal, observed_effect: float,
+                  measurement_uncertainty: Optional[float] = None) -> ClosureReport:
     """Run the arithmetic over the confirmed chains of a traversal.
 
     `observed_effect` is the thing to be explained, in the metric's own units --
     typically focus minus baseline. It is passed in rather than derived here
     because deciding what counts as the baseline is a judgement someone has to
     make and record, not one this gate should make silently.
+
+    `measurement_uncertainty` is how much the size of that effect depends on
+    which estimator measured it, as a fraction -- Gate 1's estimator_choice
+    probe produces it. When it exceeds the residual tolerance, the tolerance
+    widens to match, because an explanation covering 75% of an effect whose size
+    is only known to within 30% has not fallen short of anything a reader could
+    act on. The widening is reported, never silent: a pass at a loosened
+    tolerance is a weaker claim and has to read like one.
     """
     on_chains = {n for chain in traversal.closed_chains() for n in chain}
     if not on_chains:
@@ -150,6 +164,13 @@ def audit_closure(traversal: Traversal, observed_effect: float) -> ClosureReport
     unquantified = sorted(n.hypothesis for n in on_chains
                           if n.magnitude_accounted is None and n.is_leaf and n.explanatory)
 
+    tolerance, reason = RESIDUAL_TOLERANCE, None
+    if measurement_uncertainty is not None and measurement_uncertainty > RESIDUAL_TOLERANCE:
+        tolerance = measurement_uncertainty
+        reason = (f"widened from {RESIDUAL_TOLERANCE:.0%} because two estimators disagree about the "
+                  f"size of the effect by {measurement_uncertainty:.0%}; a residual finer than the "
+                  "ruler is not a finding")
+
     accounted = sum(a for _, a in contributions)
     report = ClosureReport(
         verdict=Accounting.NOT_QUANTIFIED,
@@ -157,6 +178,8 @@ def audit_closure(traversal: Traversal, observed_effect: float) -> ClosureReport
         accounted=accounted,
         contributions=sorted(contributions, key=lambda c: -abs(c[1])),
         unquantified=unquantified,
+        tolerance=tolerance,
+        tolerance_reason=reason,
     )
 
     if unquantified or not contributions:
@@ -169,16 +192,17 @@ def audit_closure(traversal: Traversal, observed_effect: float) -> ClosureReport
         report.verdict = Accounting.ACCOUNTED if accounted == 0 else Accounting.OVER_ACCOUNTED
         return report
 
-    if frac > RESIDUAL_TOLERANCE:
+    if frac > tolerance:
         report.verdict = Accounting.UNDER_ACCOUNTED
-    elif frac < -RESIDUAL_TOLERANCE:
+    elif frac < -tolerance:
         report.verdict = Accounting.OVER_ACCOUNTED
     else:
         report.verdict = Accounting.ACCOUNTED
     return report
 
 
-def closes(traversal: Traversal, observed_effect: float):
+def closes(traversal: Traversal, observed_effect: float,
+           measurement_uncertainty: Optional[float] = None):
     """All four closure conditions, and the only place they are asserted together.
 
     Gate 2 owns three (a confirmed chain, no live alternative beside it, no gap
@@ -192,7 +216,7 @@ def closes(traversal: Traversal, observed_effect: float):
     claim -- knowing the counterfactual -- is not in the logs.
     """
     reasons = list(traversal.unclosed_reasons())
-    magnitude = audit_closure(traversal, observed_effect)
+    magnitude = audit_closure(traversal, observed_effect, measurement_uncertainty)
     if magnitude.verdict is not Accounting.ACCOUNTED:
         reasons.append(f"[magnitude] {magnitude.verdict.value}: "
                        f"{magnitude.accounted:+.2f} accounted of {magnitude.observed_effect:+.2f} observed")

@@ -26,6 +26,7 @@ from premise_audit import (  # noqa: E402
     Provenance,
     Verdict,
     audit,
+    estimator_divergence,
     decide,
 )
 
@@ -42,6 +43,14 @@ def healthy(**overrides):
         metric="latency_ms",
         focus_value=1800.0,
         baseline_value=330.0,
+        # A second estimator over the same documents. Present in the healthy
+        # fixture because a sweep that cannot ask "does the effect survive a
+        # different ruler" is an incomplete sweep, and an incomplete sweep may
+        # not substantiate anything.
+        focus_value_alt=1755.0,
+        baseline_value_alt=325.0,
+        estimator="tdigest",
+        estimator_alt="hdr",
         provenance=Provenance.EXTERNAL_REPORT,
         window_start=WINDOW_START,
         window_end=WINDOW_END,
@@ -202,6 +211,47 @@ def test_a_window_judged_before_it_finished_is_an_artifact():
     moment = next(p for p in partial.probes if p.probe == "observation_moment")
     assert moment.outcome is Outcome.REFUTED
     assert "20% elapsed" in moment.evidence
+
+
+# --- the ruler is part of the claim ---------------------------------------
+
+
+def test_a_single_estimator_cannot_substantiate_its_own_reading():
+    """A percentile is an estimate, and which estimator produced it is a choice
+    nobody records. With one ruler the number cannot be separated from the method."""
+    report = audit(healthy(focus_value_alt=None, baseline_value_alt=None, estimator_alt=None))
+    assert report.verdict is Verdict.UNDECIDABLE
+    assert any("second percentile estimator" in m for m in report.missing_inputs)
+
+
+def test_an_effect_only_one_estimator_can_see_is_an_artifact():
+    """5x in tdigest and nothing in hdr, over identical documents. The jump is a
+    property of the ruler, and no investigation should start from it."""
+    report = audit(healthy(focus_value_alt=340.0, baseline_value_alt=325.0))
+    assert report.verdict is Verdict.ARTIFACT
+    probe = next(p for p in report.probes if p.probe == "estimator_choice")
+    assert probe.outcome is Outcome.REFUTED
+
+
+def test_estimators_that_disagree_only_about_size_do_not_refute():
+    """Both rulers see it; they size it differently. That is not grounds to throw
+    the observation out -- it is grounds to stop claiming a precision nobody has."""
+    report = audit(healthy(focus_value_alt=1450.0, baseline_value_alt=325.0))
+    probe = next(p for p in report.probes if p.probe == "estimator_choice")
+    assert probe.outcome is Outcome.NOT_REFUTED
+    assert report.verdict is Verdict.SUBSTANTIATED
+    assert "disagree about its size" in probe.evidence
+
+
+def test_the_divergence_is_available_to_gate_3_as_a_number():
+    obs = healthy(focus_value_alt=1450.0, baseline_value_alt=325.0)
+    # tdigest 1800-330 = 1470; hdr 1450-325 = 1125
+    assert estimator_divergence(obs) == pytest.approx((1470 - 1125) / 1470)
+
+
+def test_divergence_is_absent_rather_than_zero_when_there_is_one_ruler():
+    """Zero would say the rulers agree. Nothing was compared."""
+    assert estimator_divergence(healthy(focus_value_alt=None, baseline_value_alt=None)) is None
 
 
 def test_decide_rejects_a_pass_built_from_an_incomplete_sweep():

@@ -98,7 +98,7 @@ This precedence makes `UNDECIDABLE` unreachable by mere uncertainty: it needs a
 probe that wanted a *nameable* input which was absent. "I am not sure" cannot
 produce it.
 
-**The auditor must not author the premise.** Three of the seven attempts examine
+**The auditor must not author the premise.** Three of the eight attempts examine
 the claim rather than the system, because every dataset has a maximum and a tool
 that selects its own worst bucket will always find one:
 
@@ -112,6 +112,31 @@ that selects its own worst bucket will always find one:
   timestamp is what makes provenance checkable rather than typed
 - a window **judged before it finished** is an artifact: the reporter and the
   auditor are looking at two different datasets that share a name
+
+**And the ruler is part of the claim.** A percentile from an aggregation is not
+a measurement of the data, it is an estimate computed from it, and which
+estimator produced it is a choice almost nobody records. The eighth attempt asks
+the same window with a second one — `tdigest` and `hdr`, both core to every
+OpenSearch distribution, both sub-aggregations of the same request, so neither a
+dependency nor an extra round trip.
+
+This is not hypothetical. On this project's fixtures the default estimator reads
+**+0.14% to +21.75%** above the true value at n=200, and on the negative control
+that error decides *which bucket is selected as the incident* — it picks one
+whose true p99 is lower than another's. A single-estimator reading cannot be
+separated from the method that produced it, so it may not substantiate anything.
+
+The two kinds of disagreement are not the same finding:
+
+- **about existence** — one ruler sees a 5x jump and the other sees nothing. The
+  jump belongs to the ruler, and that is a refutation
+- **about size** — both see it, sized differently. Not grounds to discard the
+  observation; grounds to stop claiming a precision nobody has. The divergence is
+  handed to Gate 3 rather than absorbed
+
+Measured on the fixtures: 2% at n=3, 8% on the real spike, and **11% on the
+negative control** — the smaller the effect, the larger the share of it that is
+ruler.
 
 ### Gate 2
 
@@ -206,6 +231,14 @@ merely discouraged.
 for 92% of the effect leaves 8% nobody has explained. That is a fact about the
 incident, not a rounding error to be absorbed into a pass.
 
+**The tolerance cannot be finer than the ruler.** Gate 1's estimator probe hands
+down how much the effect's size depends on which estimator measured it. When
+that exceeds the residual tolerance, the tolerance widens to match: an
+explanation covering 75% of an effect known only to within 30% has not fallen
+short of anything a reader could act on. The widening is printed with its
+reason — a pass at a loosened tolerance is a weaker claim and has to read like
+one, or the report launders imprecision into agreement.
+
 Gate 3 does no filtering of its own: magnitude may only come from `CONFIRMED`
 nodes, and that is enforced upstream at construction. If this gate decided which
 numbers to trust, it would be re-litigating Gate 2's verdicts with less evidence
@@ -258,12 +291,12 @@ shows its numbers: a genuine concentration below roughly half the median rise is
 reported as *elevated, not established*. It under-claims, never over-claims, and
 the miss is counted rather than hidden.
 
-**Gate 1's own ruler is unaudited.** The percentile aggregation the premise
-audit reads is an estimator, and on the negative-control fixture its error
-changes *which bucket is selected as the incident* — the tool picks a bucket
-whose true p99 is lower than another's. Gate 1 already refuses to substantiate a
-self-selected window, which contains the damage; a probe comparing two built-in
-estimators of the same quantity is not yet built.
+**Two estimators are not a confidence interval.** The eighth probe establishes
+that the reading is not an artifact of one particular method. It does not bound
+the error — both estimators could be wrong in the same direction, and on these
+fixtures both read high against the exact value. What it rules out is the
+failure where the whole effect belongs to the estimator; what it does not
+provide is a true measurement uncertainty.
 
 ## Development fixtures
 

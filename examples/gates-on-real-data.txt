@@ -24,6 +24,9 @@ REFUTATION ATTEMPTS (what was actually checked):
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
        this window was picked by scanning for the worst bucket, not reported by anyone
        MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] estimator_choice
+       tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
+       `tdigest` sees +1885.05, `hdr` sees +1919.46 over the same documents (102% as large) -- both rulers see it; they disagree about its size by 2%, which is carried forward rather than absorbed
   [REFUTED      ] sample_size_collapse
        tried to show: the change is arithmetic noise because almost no data landed in the window
        focus n=3 vs baseline typical n=200 (ratio 0.015) -- below n=30 or 25% of baseline
@@ -65,6 +68,9 @@ REFUTATION ATTEMPTS (what was actually checked):
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
        this window was picked by scanning for the worst bucket, not reported by anyone
        MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] estimator_choice
+       tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
+       `tdigest` sees +1458.30, `hdr` sees +1339.46 over the same documents (92% as large) -- both rulers see it; they disagree about its size by 8%, which is carried forward rather than absorbed
   [NOT_REFUTED  ] sample_size_collapse
        tried to show: the change is arithmetic noise because almost no data landed in the window
        focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
@@ -143,6 +149,7 @@ MAGNITUDE: NOT_QUANTIFIED
   observed effect   +1458.30
   accounted for     +0.00
   unexplained       +1458.30 (+100.0% of the effect)
+  tolerance         20%
 
   Nothing was confirmed that claims to explain the effect, so there is
   no explanation to size. This is not a measurement gap -- it is the
@@ -182,6 +189,9 @@ REFUTATION ATTEMPTS (what was actually checked):
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
        this window was picked by scanning for the worst bucket, not reported by anyone
        MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] estimator_choice
+       tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
+       `tdigest` sees +92.65, `hdr` sees +102.74 over the same documents (111% as large) -- both rulers see it; they disagree about its size by 11%, which is carried forward rather than absorbed
   [NOT_REFUTED  ] sample_size_collapse
        tried to show: the change is arithmetic noise because almost no data landed in the window
        focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
@@ -260,6 +270,7 @@ MAGNITUDE: NOT_QUANTIFIED
   observed effect   +92.65
   accounted for     +0.00
   unexplained       +92.65 (+100.0% of the effect)
+  tolerance         20%
 
   Nothing was confirmed that claims to explain the effect, so there is
   no explanation to size. This is not a measurement gap -- it is the
@@ -297,6 +308,9 @@ REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] window_provenance
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
        externally reported at 2026-08-02T02:12:00Z; the window was named before this audit ran
+  [NOT_REFUTED  ] estimator_choice
+       tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
+       `tdigest` sees +1458.30, `hdr` sees +1339.46 over the same documents (92% as large) -- both rulers see it; they disagree about its size by 8%, which is carried forward rather than absorbed
   [NOT_REFUTED  ] sample_size_collapse
        tried to show: the change is arithmetic noise because almost no data landed in the window
        focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
@@ -371,6 +385,7 @@ MAGNITUDE: NOT_QUANTIFIED
   observed effect   +1458.30
   accounted for     +0.00
   unexplained       +1458.30 (+100.0% of the effect)
+  tolerance         20%
 
   Nothing was confirmed that claims to explain the effect, so there is
   no explanation to size. This is not a measurement gap -- it is the
