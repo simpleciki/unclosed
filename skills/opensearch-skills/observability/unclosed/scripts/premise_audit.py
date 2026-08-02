@@ -45,6 +45,7 @@ Standard library only.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
@@ -59,6 +60,21 @@ class Verdict(str, Enum):
     ARTIFACT = "ARTIFACT"
     SUBSTANTIATED = "SUBSTANTIATED"
     UNDECIDABLE = "UNDECIDABLE"
+
+
+class Provenance(str, Enum):
+    """Where the observation came from.
+
+    This is not bookkeeping. An auditor that selects its own subject has merged
+    the role of the one who claims with the role of the one who checks, and no
+    amount of rigor downstream repairs that: the information "who chose this
+    window, before or after seeing the data" does not exist in the data. It
+    exists in the origin of the question.
+    """
+
+    EXTERNAL_REPORT = "EXTERNAL_REPORT"  # a human, an alert, or another agent named a window
+    SELF_SELECTED = "SELF_SELECTED"      # this tool scanned and picked the worst bucket
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -93,6 +109,14 @@ class Observation:
     metric: str
     focus_value: float
     baseline_value: float
+
+    # --- provenance of the claim itself -----------------------------------
+    # Answered before any question about the system, because these decide
+    # whether there is a claim to examine at all.
+    provenance: Provenance = Provenance.UNKNOWN
+    window_start: Optional[str] = None  # the moment being claimed about
+    window_end: Optional[str] = None
+    reported_at: Optional[str] = None  # the moment the claim was made
 
     focus_count: Optional[int] = None
     baseline_typical_count: Optional[int] = None
@@ -162,6 +186,116 @@ MIN_TRUSTWORTHY_N = 30
 COMPOSITION_SHIFT = 0.25  # total variation distance above this is a different population
 MIN_COMPOSITION_N = 30  # below this, composition is not estimable and the probe must decline
 INGEST_LAG_MULTIPLE = 10.0  # focus lag this many times baseline suggests replay/backfill
+
+
+MIN_WINDOW_ELAPSED = 0.9  # a window judged before this fraction had passed was judged incomplete
+
+
+def _parse(ts: Optional[str]) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def probe_unanchored_report(obs: Observation) -> ProbeResult:
+    """Does the report name a moment at all?
+
+    A report with no window is not a weak claim. It is not a claim. Nothing can
+    contradict it, which means nothing can support it either, and every probe
+    below would have nothing to bite on.
+
+    This refutes rather than declining, and the distinction is operational:
+    UNDECIDABLE sends you to collect more data, ARTIFACT sends you back to
+    whoever filed the report. Here the data is not what is missing.
+    """
+    story = "there is no observation here -- the report never named a moment, so nothing about it could be wrong"
+    start, end = _parse(obs.window_start), _parse(obs.window_end)
+    if start is None or end is None:
+        return ProbeResult(
+            "unanchored_report", story, Outcome.REFUTED,
+            f"window_start={obs.window_start!r} window_end={obs.window_end!r} "
+            "-- an unfalsifiable report is not evidence of anything",
+        )
+    return ProbeResult("unanchored_report", story, Outcome.NOT_REFUTED,
+                       f"window {obs.window_start} -> {obs.window_end} is a specific, checkable claim")
+
+
+def probe_observation_moment(obs: Observation) -> ProbeResult:
+    """When was this observed, and had the window finished by then?
+
+    An alert evaluating a 10-minute bucket two minutes in is computing a
+    percentile over a window that does not exist yet. By audit time the bucket
+    is full and unremarkable -- so the auditor and the reporter are looking at
+    two different datasets that share a name.
+
+    Without a report time, that difference leaves no trace in the data at all.
+    """
+    story = "the reporter judged a window that had not finished; the incident existed only at evaluation time"
+    reported = _parse(obs.reported_at)
+    start, end = _parse(obs.window_start), _parse(obs.window_end)
+
+    if reported is None:
+        return ProbeResult(
+            "observation_moment", story, Outcome.COULD_NOT_RUN,
+            "the report does not say when it was made, so it cannot be compared to the window it describes",
+            missing="the moment the observation was made (report/evaluation timestamp)",
+        )
+    if start is None or end is None:
+        return ProbeResult(
+            "observation_moment", story, Outcome.COULD_NOT_RUN,
+            "no window to compare the report time against",
+            missing="a specified observation window (start and end)",
+        )
+
+    span = (end - start).total_seconds()
+    elapsed = (reported - start).total_seconds()
+    fraction = elapsed / span if span else 0.0
+    ev = (f"reported at {obs.reported_at}, window {obs.window_start} -> {obs.window_end} "
+          f"({fraction:.0%} elapsed at report time)")
+    if fraction < MIN_WINDOW_ELAPSED:
+        return ProbeResult("observation_moment", story, Outcome.REFUTED,
+                           ev + f" -- below {MIN_WINDOW_ELAPSED:.0%}; the reporter saw a partial window, "
+                                "and the data audited here is not the data that triggered the report")
+    return ProbeResult("observation_moment", story, Outcome.NOT_REFUTED,
+                       ev + " -- the window was complete when it was judged")
+
+
+def probe_who_chose_the_window(obs: Observation) -> ProbeResult:
+    """Was the target drawn before or after the arrows landed?
+
+    Any dataset has a maximum. A scan that selects its own worst bucket will
+    always find one, and can never return "there is nothing here". Auditing that
+    self-selected maximum and reporting that it is not an artifact is the
+    sharpshooter drawing the bullseye around the holes.
+
+    An EXTERNAL_REPORT claim with no report timestamp is just a word someone
+    typed. The timestamp is what makes the provenance checkable rather than
+    asserted, so it is required here too.
+    """
+    story = "the window was chosen after seeing the data, so finding something there proves nothing"
+    if obs.provenance is Provenance.SELF_SELECTED:
+        return ProbeResult(
+            "window_provenance", story, Outcome.COULD_NOT_RUN,
+            "this window was picked by scanning for the worst bucket, not reported by anyone",
+            missing="an observation window specified before the data was examined (external report)",
+        )
+    if obs.provenance is Provenance.UNKNOWN:
+        return ProbeResult(
+            "window_provenance", story, Outcome.COULD_NOT_RUN,
+            "the origin of this window was not recorded",
+            missing="who reported this window (external report vs self-selected scan)",
+        )
+    if not obs.reported_at:
+        return ProbeResult(
+            "window_provenance", story, Outcome.COULD_NOT_RUN,
+            "claims to be an external report but carries no report time, so the claim itself is unverifiable",
+            missing="a report timestamp backing the EXTERNAL_REPORT claim",
+        )
+    return ProbeResult("window_provenance", story, Outcome.NOT_REFUTED,
+                       f"externally reported at {obs.reported_at}; the window was named before this audit ran")
 
 
 def probe_sample_size(obs: Observation) -> ProbeResult:
@@ -253,7 +387,18 @@ def probe_measurement_continuity(obs: Observation) -> ProbeResult:
                        ev + " -- one consistent mapping; the ruler did not change")
 
 
-PROBES = (probe_sample_size, probe_population_shift, probe_clock_semantics, probe_measurement_continuity)
+PROBES = (
+    # Provenance first. These decide whether there is a claim to examine before
+    # anything asks a question about the system.
+    probe_unanchored_report,
+    probe_observation_moment,
+    probe_who_chose_the_window,
+    # Then the measurement itself.
+    probe_sample_size,
+    probe_population_shift,
+    probe_clock_semantics,
+    probe_measurement_continuity,
+)
 
 
 def decide(probes) -> Verdict:

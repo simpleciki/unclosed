@@ -24,7 +24,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, __file__.rsplit("audit_window.py", 1)[0])
-from premise_audit import Observation, audit  # noqa: E402
+from premise_audit import Observation, Provenance, audit  # noqa: E402
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:9250"
 SAMPLE_SIZE = 200
@@ -51,6 +51,10 @@ def _range(field, gte, lt):
 
 def _iso(dt):
     return dt.isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso(ts):
+    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
 def discover_fields(endpoint, index, metric):
@@ -118,13 +122,30 @@ def ingest_lag_p50(endpoint, index, time_field, second_clock, gte, lt):
     return statistics.median(lags) if lags else None
 
 
-def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, lookback_hours):
+def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, lookback_hours,
+                      focus_window=None, reported_at=None):
     resolved, metric_types, date_fields = discover_fields(endpoint, index, metric)
     buckets = bucket_stats(endpoint, index, time_field, metric, bucket_minutes, lookback_hours)
     if len(buckets) < 2:
         raise SystemExit(f"Not enough data in {index} over the last {lookback_hours}h to compare anything.")
 
-    focus = max(buckets, key=lambda b: b["p99"])
+    if focus_window:
+        # Someone named this window. The audit examines what they claimed.
+        target = _parse_iso(focus_window)
+        focus = next((b for b in buckets if _parse_iso(b["start"]) == target), None)
+        if focus is None:
+            raise SystemExit(
+                f"No {bucket_minutes}m bucket starts at {focus_window} in the last {lookback_hours}h.\n"
+                f"Available bucket starts: {buckets[0]['start']} .. {buckets[-1]['start']}"
+            )
+        provenance = Provenance.EXTERNAL_REPORT
+    else:
+        # No window was reported, so this tool picks the worst one -- and says
+        # so. Every dataset has a maximum; selecting it and then confirming it
+        # is not an artifact would be drawing the target around the arrows.
+        focus = max(buckets, key=lambda b: b["p99"])
+        provenance = Provenance.SELF_SELECTED
+
     others = [b for b in buckets if b is not focus]
     baseline_p99 = statistics.median(b["p99"] for b in others)
     baseline_n = int(statistics.median(b["n"] for b in others))
@@ -140,6 +161,10 @@ def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, 
         metric=metric,
         focus_value=focus["p99"],
         baseline_value=baseline_p99,
+        provenance=provenance,
+        window_start=f_start,
+        window_end=f_end,
+        reported_at=reported_at,
         focus_count=focus["n"],
         baseline_typical_count=baseline_n,
         focus_composition=composition(endpoint, index, time_field, dim, f_start, f_end) if dim else None,
@@ -161,12 +186,21 @@ def main() -> int:
     ap.add_argument("--dimension", default="endpoint", help="Categorical field for the population check")
     ap.add_argument("--bucket-minutes", type=int, default=10)
     ap.add_argument("--lookback-hours", type=int, default=6)
+    ap.add_argument("--focus-window", default=None,
+                    help="ISO start of the window someone reported, e.g. 2026-08-01T14:20:00Z. "
+                         "Without it this tool selects the worst bucket itself and can never "
+                         "return SUBSTANTIATED.")
+    ap.add_argument("--reported-at", default=None,
+                    help="ISO moment the observation was made. An external report without one "
+                         "cannot be verified as a report at all.")
     args = ap.parse_args()
 
     obs, focus = build_observation(args.endpoint, args.index, args.metric, args.time_field,
-                                   args.dimension, args.bucket_minutes, args.lookback_hours)
+                                   args.dimension, args.bucket_minutes, args.lookback_hours,
+                                   args.focus_window, args.reported_at)
     report = audit(obs)
-    print(f"INDEX: {args.index}    FOCUS WINDOW: {focus['start']} (+{args.bucket_minutes}m)")
+    print(f"INDEX: {args.index}    FOCUS WINDOW: {focus['start']} (+{args.bucket_minutes}m)    "
+          f"PROVENANCE: {obs.provenance.value}")
     print(report.to_text())
     return 0
 

@@ -1,12 +1,156 @@
-﻿Gate 1 verdicts captured 2026-08-01 against opensearchproject/opensearch:2.19.3 on 127.0.0.1:9250
-Reproduce: python scripts/seed_logs.py --scenario <name> --recreate (seed 20260801)
+﻿Gate 1 verdicts captured 2026-08-01 against opensearchproject/opensearch:2.19.3 (127.0.0.1:9250)
+Reproduce: python scripts/seed_logs.py --scenario <name> --recreate   (seed 20260801)
 
-=============== unclosed-fake-spike ===============
-INDEX: unclosed-fake-spike    FOCUS WINDOW: 2026-08-02T01:30:00.000Z (+10m)
+Cases C and D are the same index, the same window, and the same documents.
+Only the moment of observation differs.
+
+=============== A. flat data, no window reported -- the tool picks the worst bucket itself ===============
+INDEX: unclosed-baseline    FOCUS WINDOW: 2026-08-01T20:40:00.000Z (+10m)    PROVENANCE: SELF_SELECTED
+VERDICT: UNDECIDABLE
+OBSERVATION: latency_ms in focus window = 411.02 vs baseline 317.14 (1.3x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-01T20:40:00.000Z -> 2026-08-01T20:50:00Z is a specific, checkable claim
+  [COULD_NOT_RUN] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       the report does not say when it was made, so it cannot be compared to the window it describes
+       MISSING: the moment the observation was made (report/evaluation timestamp)
+  [COULD_NOT_RUN] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       this window was picked by scanning for the worst bucket, not reported by anyone
+       MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=93 vs baseline typical n=200 (ratio 0.465) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.045 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.3s vs baseline 2.1s (1.1x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Nothing refuted the observation, but the sweep is incomplete.
+Not knocked down is not the same as cleared. Missing:
+  - the moment the observation was made (report/evaluation timestamp)
+  - an observation window specified before the data was examined (external report)
+
+=============== B. real regression, no window reported -- still self-selected ===============
+INDEX: unclosed-real-spike    FOCUS WINDOW: 2026-08-02T02:00:00.000Z (+10m)    PROVENANCE: SELF_SELECTED
+VERDICT: UNDECIDABLE
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [COULD_NOT_RUN] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       the report does not say when it was made, so it cannot be compared to the window it describes
+       MISSING: the moment the observation was made (report/evaluation timestamp)
+  [COULD_NOT_RUN] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       this window was picked by scanning for the worst bucket, not reported by anyone
+       MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Nothing refuted the observation, but the sweep is incomplete.
+Not knocked down is not the same as cleared. Missing:
+  - the moment the observation was made (report/evaluation timestamp)
+  - an observation window specified before the data was examined (external report)
+
+=============== C. real regression, reported, window complete at report time ===============
+INDEX: unclosed-real-spike    FOCUS WINDOW: 2026-08-02T02:00:00.000Z (+10m)    PROVENANCE: EXTERNAL_REPORT
+VERDICT: SUBSTANTIATED
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [NOT_REFUTED  ] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       reported at 2026-08-02T02:11:00Z, window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z (110% elapsed at report time) -- the window was complete when it was judged
+  [NOT_REFUTED  ] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       externally reported at 2026-08-02T02:11:00Z; the window was named before this audit ran
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Every refutation attempt ran and every one failed. The observation stands.
+This pass rests on the record above, not on the absence of a complaint.
+
+=============== D. SAME DATA as C, but the report fired 2 minutes into a 10-minute window ===============
+INDEX: unclosed-real-spike    FOCUS WINDOW: 2026-08-02T02:00:00.000Z (+10m)    PROVENANCE: EXTERNAL_REPORT
+VERDICT: ARTIFACT
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [REFUTED      ] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       reported at 2026-08-02T02:02:00Z, window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z (20% elapsed at report time) -- below 90%; the reporter saw a partial window, and the data audited here is not the data that triggered the report
+  [NOT_REFUTED  ] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       externally reported at 2026-08-02T02:02:00Z; the window was named before this audit ran
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+The observation is explained by how it was measured: observation_moment.
+No causal investigation should proceed from this premise.
+
+=============== E. sample-size collapse, reported, window complete ===============
+INDEX: unclosed-fake-spike    FOCUS WINDOW: 2026-08-02T02:00:00.000Z (+10m)    PROVENANCE: EXTERNAL_REPORT
 VERDICT: ARTIFACT
 OBSERVATION: latency_ms in focus window = 2210.7 vs baseline 325.65 (6.8x)
 
 REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [NOT_REFUTED  ] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       reported at 2026-08-02T02:11:00Z, window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z (110% elapsed at report time) -- the window was complete when it was judged
+  [NOT_REFUTED  ] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       externally reported at 2026-08-02T02:11:00Z; the window was named before this audit ran
   [REFUTED      ] sample_size_collapse
        tried to show: the change is arithmetic noise because almost no data landed in the window
        focus n=3 vs baseline typical n=200 (ratio 0.015) -- below n=30 or 25% of baseline
@@ -23,26 +167,4 @@ REFUTATION ATTEMPTS (what was actually checked):
 
 The observation is explained by how it was measured: sample_size_collapse.
 No causal investigation should proceed from this premise.
-
-=============== unclosed-real-spike ===============
-INDEX: unclosed-real-spike    FOCUS WINDOW: 2026-08-02T01:30:00.000Z (+10m)
-VERDICT: SUBSTANTIATED
-OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
-
-REFUTATION ATTEMPTS (what was actually checked):
-  [NOT_REFUTED  ] sample_size_collapse
-       tried to show: the change is arithmetic noise because almost no data landed in the window
-       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
-  [NOT_REFUTED  ] population_shift
-       tried to show: nothing got worse; a different mix of things is being measured
-       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
-  [NOT_REFUTED  ] clock_semantics
-       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
-       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
-  [NOT_REFUTED  ] measurement_continuity
-       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
-       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
-
-Every refutation attempt ran and every one failed. The observation stands.
-This pass rests on the record above, not on the absence of a complaint.
 

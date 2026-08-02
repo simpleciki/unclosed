@@ -74,9 +74,41 @@ missing link. That is a successful run.
 
 | Gate | Question | Status |
 |---|---|---|
-| 1 | Is the reported observation real, or an artifact of how it was measured? | in development |
+| 1 | Is the reported observation real, or an artifact of how it was measured? | implemented |
 | 2 | What is the hypothesis space, and which branches were actually traversed? | not started |
 | 3 | Does the accounted-for magnitude add up to the observed effect? | not started |
+
+### Gate 1
+
+Every check is an **attempt to refute** the observation by telling a specific
+story in which nothing actually got worse. An attempt returns `REFUTED`,
+`NOT_REFUTED`, or `COULD_NOT_RUN` -- and `COULD_NOT_RUN` must name the input it
+lacked, which the constructor enforces.
+
+| Verdict | Requires |
+|---|---|
+| `ARTIFACT` | any single attempt refuted it. Finding the artifact does not require finishing the sweep |
+| `SUBSTANTIATED` | every attempt ran **and** every one failed. A pass is an optimistic claim, safe only because something pessimistic verified it -- the record *is* the pass |
+| `UNDECIDABLE` | nothing refuted it, but a line of attack was unavailable. Not knocked down is not the same as cleared |
+
+This precedence makes `UNDECIDABLE` unreachable by mere uncertainty: it needs a
+probe that wanted a *nameable* input which was absent. "I am not sure" cannot
+produce it.
+
+**The auditor must not author the premise.** Three of the seven attempts examine
+the claim rather than the system, because every dataset has a maximum and a tool
+that selects its own worst bucket will always find one:
+
+- a report that names **no moment** is `ARTIFACT`, not an open question. Nothing
+  can contradict it, so nothing can support it -- and the remedy is the
+  reporter, not more data
+- a **self-selected** window can never be `SUBSTANTIATED`. It can still be
+  refuted: discovering an artifact does not depend on the window having been
+  named in advance
+- an external report with **no report timestamp** is an unbacked claim. The
+  timestamp is what makes provenance checkable rather than typed
+- a window **judged before it finished** is an artifact: the reporter and the
+  auditor are looking at two different datasets that share a name
 
 ## Development fixtures
 
