@@ -103,10 +103,16 @@ class ClosureReport:
             lines.append("")
 
         if self.verdict is Accounting.NOT_QUANTIFIED:
-            lines.append("  The arithmetic could not run. Confirmed but carrying no number:")
-            for h in self.unquantified:
-                lines.append(f"    - {h}")
-            lines.append("  A branch that is true but unmeasured cannot close a magnitude.")
+            if self.unquantified:
+                lines.append("  The arithmetic could not run. Confirmed but carrying no number:")
+                for h in self.unquantified:
+                    lines.append(f"    - {h}")
+                lines.append("  A branch that is true but unmeasured cannot close a magnitude.")
+            else:
+                lines.append("  Nothing was confirmed that claims to explain the effect, so there is")
+                lines.append("  no explanation to size. This is not a measurement gap -- it is the")
+                lines.append("  absence of a candidate, and Gate 2 has already said which branches")
+                lines.append("  would have to move for one to exist.")
         elif self.verdict is Accounting.UNDER_ACCOUNTED:
             lines.append(f"  The confirmed branches explain {self.accounted:+.2f} of {self.observed_effect:+.2f}.")
             lines.append("  Something else did the rest, and it is not in this tree.")
@@ -135,8 +141,14 @@ def audit_closure(traversal: Traversal, observed_effect: float) -> ClosureReport
 
     contributions = [(n.hypothesis, n.magnitude_accounted)
                      for n in on_chains if n.magnitude_accounted is not None]
+
+    # Descriptive branches are skipped: a branch that restates the observation
+    # has no number to be missing, and counting its absence as a gap would make
+    # every tree containing one report NOT_QUANTIFIED regardless of the
+    # incident. The gap this looks for is a branch that claims to explain
+    # something and was never measured.
     unquantified = sorted(n.hypothesis for n in on_chains
-                          if n.magnitude_accounted is None and n.is_leaf)
+                          if n.magnitude_accounted is None and n.is_leaf and n.explanatory)
 
     accounted = sum(a for _, a in contributions)
     report = ClosureReport(

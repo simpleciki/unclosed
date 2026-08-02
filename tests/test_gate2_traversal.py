@@ -216,6 +216,18 @@ def test_only_a_confirmed_node_may_account_for_magnitude():
         Node("upstream retry storm", NodeState.INCONCLUSIVE, probe="q", evidence="e", magnitude_accounted=380.0)
 
 
+def test_a_branch_that_restates_the_observation_may_not_account_for_it():
+    """"The whole distribution shifted up" is the observation said a second way.
+
+    If it could carry the effect, the chain would close on "it got slower
+    because it got slower" -- which is the most confident-sounding empty answer
+    available, and the one a reader is least equipped to challenge.
+    """
+    with pytest.raises(ValueError, match="descriptive branch may not account for magnitude"):
+        Node("the whole distribution moved", NodeState.CONFIRMED, probe="compared p50 and p99",
+             evidence="p50 moved too", explanatory=False, magnitude_accounted=380.0)
+
+
 def test_gate2_does_not_claim_the_magnitude_question():
     """is_closed is Gate 2's half. Saying more here would answer Gate 3 without doing its work."""
     t = tree(confirmed("deploy at 14:18", ruled_out("cache eviction"), accounts=8.0))

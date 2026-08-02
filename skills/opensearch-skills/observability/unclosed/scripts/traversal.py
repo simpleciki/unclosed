@@ -148,6 +148,19 @@ class Node:
     # own units. Gate 3 does the arithmetic; Gate 2 only carries the number.
     magnitude_accounted: Optional[float] = None
 
+    # Does this branch claim to *explain* the effect, or to *describe* it?
+    #
+    # "The whole distribution shifted up" is true, tells you where to look next,
+    # and is the observation said a second way. If a descriptive branch could
+    # account for magnitude, the chain would close on "it got slower because it
+    # got slower" -- the most confident-sounding empty answer available. And if
+    # Gate 3 counted it as merely unmeasured, every tree containing one would
+    # report NOT_QUANTIFIED forever, which says nothing about the incident.
+    #
+    # So the distinction is carried on the node: a descriptive branch may not
+    # hold a number, and its lack of one is not a gap anybody can close.
+    explanatory: bool = True
+
     children: tuple = ()
 
     def __post_init__(self):
@@ -184,6 +197,13 @@ class Node:
                 f"node {self.hypothesis!r}: only a CONFIRMED node may account for magnitude -- "
                 "an unconfirmed branch that contributes to the arithmetic would let Gate 3 close "
                 "on evidence Gate 2 never established"
+            )
+
+        if self.magnitude_accounted is not None and not self.explanatory:
+            raise ValueError(
+                f"node {self.hypothesis!r}: a descriptive branch may not account for magnitude -- "
+                "it restates the observation, and letting a restatement carry the effect closes "
+                "the chain on 'it got slower because it got slower'"
             )
 
         # No double counting, enforced by shape rather than by convention.

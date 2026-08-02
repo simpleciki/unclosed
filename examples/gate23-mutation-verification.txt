@@ -31,24 +31,31 @@ mutation at one chosen test lets the author decide what counts as caught.
     caught by: test_one_unmeasured_branch_blocks_the_arithmetic_even_when_another_adds_up
 [RED - guard is real] Gate 3 closes(): ignore the magnitude verdict
     caught by: test_a_true_chain_that_explains_almost_nothing_is_rejected
+[RED - guard is real] Gate 3 Node: let a branch that restates the observation account for it
+    caught by: test_a_branch_that_restates_the_observation_may_not_account_for_it
+[RED - guard is real] Gate 3: count a descriptive branch as a missing measurement
+    caught by: test_a_descriptive_branch_is_not_a_measurement_gap, test_nothing_confirmed_to_explain_is_reported_as_that_and_not_as_a_missing_number
 [RED - guard is real] Gate 3 closes(): ignore everything Gate 2 left open
     caught by: test_a_perfect_magnitude_does_not_close_a_tree_gate2_left_open, test_a_perfect_magnitude_does_not_close_over_an_unverified_premise
 
-Two of these came back GREEN on a first pass, and both times the implementation
-was correct while the test was not reaching it:
+Three of these came back GREEN on a first pass. Every time the implementation
+was correct and the test was not reaching it:
 
-  Gate 2 closure -- the test asserted is_closed, which was already False on the
-  strength of the reason list alone, so the rule inside closed_chains() was
-  never exercised. The test was pinning the wording of the report rather than
-  the traversal.
+  Gate 2 closure -- the test asserted is_closed, already False from the reason
+  list alone, so the rule inside closed_chains() was never exercised. It was
+  pinning the wording of the report rather than the traversal.
 
-  Gate 3 NOT_QUANTIFIED -- the test happened to use a tree where no branch
-  carried a number, so "unquantified is non-empty" and "contributions is empty"
-  were true together and the mutation was a no-op. The case that separates them
-  is the dangerous one: one branch measured at 380 of 400 and a second confirmed
-  branch nobody measured. Without the rule, the unmeasured branch is silently
-  treated as contributing zero and the residual reads as 20ms of honest slack.
+  Gate 3 NOT_QUANTIFIED -- the test used a tree where no branch carried a
+  number, so "unquantified is non-empty" and "contributions is empty" were true
+  together and the mutation was a no-op. The case that separates them is the
+  dangerous one: one branch measured at 380 of 400 and a second confirmed branch
+  nobody measured. Without the rule the unmeasured branch is silently treated as
+  contributing zero and the residual reads as 20ms of honest slack.
 
-Both gaps were found by the mutations, not by review.
+  A fourth mutation was mis-aimed rather than uncaught -- it was pointed at a
+  test that could not reach the code path. The fix was to stop choosing targets:
+  every mutation now runs the whole suite.
 
-Restored to original: 63 passed in 0.50s
+All were found by the mutations, not by review.
+
+Restored to original: 66 passed in 0.49s

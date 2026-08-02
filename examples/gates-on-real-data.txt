@@ -1,0 +1,390 @@
+All three gates against a live OpenSearch 2.19.3 -- captured 2026-08-02
+Container bound to 127.0.0.1:9250. Fixtures from scripts/seed_logs.py.
+
+The first three runs give the tool no reported window, so it selects the worst
+bucket itself and Gate 1 refuses to substantiate a target it drew around its own
+arrows. The fourth supplies an external report and the premise clears.
+
+################################################################
+# unclosed-fake-spike  (no reported window -- self-selected)
+################################################################
+==============================================================================
+VERDICT: ARTIFACT
+OBSERVATION: latency_ms in focus window = 2210.7 vs baseline 325.65 (6.8x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [COULD_NOT_RUN] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       the report does not say when it was made, so it cannot be compared to the window it describes
+       MISSING: the moment the observation was made (report/evaluation timestamp)
+  [COULD_NOT_RUN] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       this window was picked by scanning for the worst bucket, not reported by anyone
+       MISSING: an observation window specified before the data was examined (external report)
+  [REFUTED      ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=3 vs baseline typical n=200 (ratio 0.015) -- below n=30 or 25% of baseline
+  [COULD_NOT_RUN] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       focus window holds 3 documents; composition is not estimable at that size
+       MISSING: at least 30 documents in the focus window to compare composition (have 3)
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 1.8s vs baseline 2.3s (0.8x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+The observation is explained by how it was measured: sample_size_collapse.
+No causal investigation should proceed from this premise.
+
+==============================================================================
+Gate 2 not run: the premise did not survive Gate 1.
+Walking a hypothesis space below an artifact would produce a tidy tree
+explaining something that did not happen.
+
+################################################################
+# unclosed-real-spike  (no reported window -- self-selected)
+################################################################
+==============================================================================
+VERDICT: UNDECIDABLE
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [COULD_NOT_RUN] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       the report does not say when it was made, so it cannot be compared to the window it describes
+       MISSING: the moment the observation was made (report/evaluation timestamp)
+  [COULD_NOT_RUN] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       this window was picked by scanning for the worst bucket, not reported by anyone
+       MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Nothing refuted the observation, but the sweep is incomplete.
+Not knocked down is not the same as cleared. Missing:
+  - the moment the observation was made (report/evaluation timestamp)
+  - an observation window specified before the data was examined (external report)
+
+==============================================================================
+OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-02T02:00:00.000Z
+PREMISE (Gate 1): UNDECIDABLE
+
+TRAVERSAL:
+  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-02T02:00:00.000Z
+       asked: p99 per 10m bucket over the last 24h
+       got:   focus 1783.95 vs baseline 325.65 (n=200)
+    [INCONCLUSIVE] the rise is confined to one endpoint
+         asked: compared each `endpoint` value's own median against the rest of the same window
+         got:   `endpoint=/api/profile` (n=54) has median 533.28 against 424.62 for the rest of the window -- +108.66, or 28% of the window's own median rise of +386.53; largest of 4 values compared -- elevated, but not enough to say the effect lives here
+    [INCONCLUSIVE] the rise is confined to one region
+         asked: compared each `region` value's own median against the rest of the same window
+         got:   `region=us-west-2` (n=76) has median 514.12 against 434.07 for the rest of the window -- +80.05, or 21% of the window's own median rise of +386.53; largest of 3 values compared -- elevated, but not enough to say the effect lives here
+    [INCONCLUSIVE] the rise is confined to one service
+         asked: grouped the focus window by `service`
+         got:   only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
+    [INCONCLUSIVE] the rise is confined to failing requests
+         asked: compared each `status` value's own median against the rest of the same window
+         got:   no value has 30 documents on both sides of the comparison (200 (n=198 vs 2); 500 (n=2 vs 198)); at that size the comparison would be reporting subgroup size, not concentration
+    [CONFIRMED   ] the whole distribution moved, not just the tail
+         asked: compared p50 and p99 across focus and baseline
+         got:   p50 80.16 -> 466.68 (+386.53), p99 moved +1458.30; the median carries 27% of it -- a uniform shift. This says where to look next, and it is the observation restated, so it explains nothing on its own
+    [NOT_VISITED ] a deploy or config change landed in this window
+         NOT WALKED: needs deploy/change events -- this index carries request logs only
+    [NOT_VISITED ] an upstream dependency got slower
+         NOT WALKED: needs downstream call spans or a dependency's own latency series
+    [NOT_VISITED ] the host or container lost resources
+         NOT WALKED: needs node-level CPU/memory/disk metrics, which are not request logs
+
+GATE 2: NOT CLOSED
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: the moment the observation was made (report/evaluation timestamp)
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: an observation window specified before the data was examined (external report)
+  - [not ruled out] the rise is confined to one endpoint -- `endpoint=/api/profile` (n=54) has median 533.28 against 424.62 for the rest of the window -- +108.66, or 28% of the window's own median rise of +386.53; largest of 4 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one region -- `region=us-west-2` (n=76) has median 514.12 against 434.07 for the rest of the window -- +80.05, or 21% of the window's own median rise of +386.53; largest of 3 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
+  - [not ruled out] the rise is confined to failing requests -- no value has 30 documents on both sides of the comparison (200 (n=198 vs 2); 500 (n=2 vs 198)); at that size the comparison would be reporting subgroup size, not concentration
+  - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
+  - [not visited] an upstream dependency got slower -- needs downstream call spans or a dependency's own latency series
+  - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
+  - [no chain] no root-to-leaf path is confirmed end to end
+
+WHAT WOULD MOVE THIS:
+  go and look -- 3 branch(es) never walked:
+    - a deploy or config change landed in this window
+    - an upstream dependency got slower
+    - the host or container lost resources
+  neither -- 4 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
+    - the rise is confined to one endpoint
+    - the rise is confined to one region
+    - the rise is confined to one service
+    - the rise is confined to failing requests
+
+Work already done and still valid: 6 branch(es) settled. Being blocked at one branch does not invalidate evidence collected on another.
+
+==============================================================================
+MAGNITUDE: NOT_QUANTIFIED
+  observed effect   +1458.30
+  accounted for     +0.00
+  unexplained       +1458.30 (+100.0% of the effect)
+
+  Nothing was confirmed that claims to explain the effect, so there is
+  no explanation to size. This is not a measurement gap -- it is the
+  absence of a candidate, and Gate 2 has already said which branches
+  would have to move for one to exist.
+
+==============================================================================
+ALL FOUR CONDITIONS: NOT CLOSED
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: the moment the observation was made (report/evaluation timestamp)
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: an observation window specified before the data was examined (external report)
+  - [not ruled out] the rise is confined to one endpoint -- `endpoint=/api/profile` (n=54) has median 533.28 against 424.62 for the rest of the window -- +108.66, or 28% of the window's own median rise of +386.53; largest of 4 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one region -- `region=us-west-2` (n=76) has median 514.12 against 434.07 for the rest of the window -- +80.05, or 21% of the window's own median rise of +386.53; largest of 3 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
+  - [not ruled out] the rise is confined to failing requests -- no value has 30 documents on both sides of the comparison (200 (n=198 vs 2); 500 (n=2 vs 198)); at that size the comparison would be reporting subgroup size, not concentration
+  - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
+  - [not visited] an upstream dependency got slower -- needs downstream call spans or a dependency's own latency series
+  - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
+  - [no chain] no root-to-leaf path is confirmed end to end
+  - [magnitude] NOT_QUANTIFIED: +0.00 accounted of +1458.30 observed
+
+################################################################
+# unclosed-baseline  (no reported window -- self-selected)
+################################################################
+==============================================================================
+VERDICT: UNDECIDABLE
+OBSERVATION: latency_ms in focus window = 409.79 vs baseline 317.14 (1.3x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-01T22:00:00.000Z -> 2026-08-01T22:10:00Z is a specific, checkable claim
+  [COULD_NOT_RUN] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       the report does not say when it was made, so it cannot be compared to the window it describes
+       MISSING: the moment the observation was made (report/evaluation timestamp)
+  [COULD_NOT_RUN] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       this window was picked by scanning for the worst bucket, not reported by anyone
+       MISSING: an observation window specified before the data was examined (external report)
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.041 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.4s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Nothing refuted the observation, but the sweep is incomplete.
+Not knocked down is not the same as cleared. Missing:
+  - the moment the observation was made (report/evaluation timestamp)
+  - an observation window specified before the data was examined (external report)
+
+==============================================================================
+OBSERVATION: latency_ms p99 317.14 -> 409.79 in 2026-08-01T22:00:00.000Z
+PREMISE (Gate 1): UNDECIDABLE
+
+TRAVERSAL:
+  [CONFIRMED   ] latency_ms rose +92.65 in 2026-08-01T22:00:00.000Z
+       asked: p99 per 10m bucket over the last 24h
+       got:   focus 409.79 vs baseline 317.14 (n=200)
+    [INCONCLUSIVE] the rise is confined to one endpoint
+         asked: compared each `endpoint` value's own median against the rest of the same window
+         got:   the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+    [INCONCLUSIVE] the rise is confined to one region
+         asked: compared each `region` value's own median against the rest of the same window
+         got:   the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+    [INCONCLUSIVE] the rise is confined to one service
+         asked: compared each `service` value's own median against the rest of the same window
+         got:   the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+    [INCONCLUSIVE] the rise is confined to failing requests
+         asked: compared each `status` value's own median against the rest of the same window
+         got:   the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+    [RULED_OUT   ] the whole distribution moved, not just the tail
+         asked: compared p50 and p99 across focus and baseline
+         got:   p50 80.64 -> 70.93 (-9.71), p99 moved +92.65; the median carries -10% of it -- the median held; this is a tail-only event
+    [NOT_VISITED ] a deploy or config change landed in this window
+         NOT WALKED: needs deploy/change events -- this index carries request logs only
+    [NOT_VISITED ] an upstream dependency got slower
+         NOT WALKED: needs downstream call spans or a dependency's own latency series
+    [NOT_VISITED ] the host or container lost resources
+         NOT WALKED: needs node-level CPU/memory/disk metrics, which are not request logs
+
+GATE 2: NOT CLOSED
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: the moment the observation was made (report/evaluation timestamp)
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: an observation window specified before the data was examined (external report)
+  - [not ruled out] the rise is confined to one endpoint -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not ruled out] the rise is confined to one region -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not ruled out] the rise is confined to one service -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not ruled out] the rise is confined to failing requests -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
+  - [not visited] an upstream dependency got slower -- needs downstream call spans or a dependency's own latency series
+  - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
+  - [no chain] no root-to-leaf path is confirmed end to end
+
+WHAT WOULD MOVE THIS:
+  go and look -- 3 branch(es) never walked:
+    - a deploy or config change landed in this window
+    - an upstream dependency got slower
+    - the host or container lost resources
+  neither -- 4 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
+    - the rise is confined to one endpoint
+    - the rise is confined to one region
+    - the rise is confined to one service
+    - the rise is confined to failing requests
+
+Work already done and still valid: 6 branch(es) settled. Being blocked at one branch does not invalidate evidence collected on another.
+
+==============================================================================
+MAGNITUDE: NOT_QUANTIFIED
+  observed effect   +92.65
+  accounted for     +0.00
+  unexplained       +92.65 (+100.0% of the effect)
+
+  Nothing was confirmed that claims to explain the effect, so there is
+  no explanation to size. This is not a measurement gap -- it is the
+  absence of a candidate, and Gate 2 has already said which branches
+  would have to move for one to exist.
+
+==============================================================================
+ALL FOUR CONDITIONS: NOT CLOSED
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: the moment the observation was made (report/evaluation timestamp)
+  - [premise] Gate 1 returned UNDECIDABLE and still lacks: an observation window specified before the data was examined (external report)
+  - [not ruled out] the rise is confined to one endpoint -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not ruled out] the rise is confined to one region -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not ruled out] the rise is confined to one service -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not ruled out] the rise is confined to failing requests -- the window's own median did not rise, so this is a tail-only event and the median cannot localise it; a percentile estimated on one value's documents would be reporting subgroup size instead
+  - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
+  - [not visited] an upstream dependency got slower -- needs downstream call spans or a dependency's own latency series
+  - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
+  - [no chain] no root-to-leaf path is confirmed end to end
+  - [magnitude] NOT_QUANTIFIED: +0.00 accounted of +92.65 observed
+
+################################################################
+# unclosed-real-spike  (external report, window named in advance)
+################################################################
+==============================================================================
+VERDICT: SUBSTANTIATED
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z is a specific, checkable claim
+  [NOT_REFUTED  ] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       reported at 2026-08-02T02:12:00Z, window 2026-08-02T02:00:00.000Z -> 2026-08-02T02:10:00Z (120% elapsed at report time) -- the window was complete when it was judged
+  [NOT_REFUTED  ] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       externally reported at 2026-08-02T02:12:00Z; the window was named before this audit ran
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+Every refutation attempt ran and every one failed. The observation stands.
+This pass rests on the record above, not on the absence of a complaint.
+
+==============================================================================
+OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-02T02:00:00.000Z
+PREMISE (Gate 1): SUBSTANTIATED
+
+TRAVERSAL:
+  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-02T02:00:00.000Z
+       asked: p99 per 10m bucket over the last 24h
+       got:   focus 1783.95 vs baseline 325.65 (n=200)
+    [INCONCLUSIVE] the rise is confined to one endpoint
+         asked: compared each `endpoint` value's own median against the rest of the same window
+         got:   `endpoint=/api/profile` (n=54) has median 533.28 against 424.62 for the rest of the window -- +108.66, or 28% of the window's own median rise of +386.53; largest of 4 values compared -- elevated, but not enough to say the effect lives here
+    [INCONCLUSIVE] the rise is confined to one region
+         asked: compared each `region` value's own median against the rest of the same window
+         got:   `region=us-west-2` (n=76) has median 514.12 against 434.07 for the rest of the window -- +80.05, or 21% of the window's own median rise of +386.53; largest of 3 values compared -- elevated, but not enough to say the effect lives here
+    [INCONCLUSIVE] the rise is confined to one service
+         asked: grouped the focus window by `service`
+         got:   only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
+    [INCONCLUSIVE] the rise is confined to failing requests
+         asked: compared each `status` value's own median against the rest of the same window
+         got:   no value has 30 documents on both sides of the comparison (200 (n=198 vs 2); 500 (n=2 vs 198)); at that size the comparison would be reporting subgroup size, not concentration
+    [CONFIRMED   ] the whole distribution moved, not just the tail
+         asked: compared p50 and p99 across focus and baseline
+         got:   p50 80.16 -> 466.68 (+386.53), p99 moved +1458.30; the median carries 27% of it -- a uniform shift. This says where to look next, and it is the observation restated, so it explains nothing on its own
+    [NOT_VISITED ] a deploy or config change landed in this window
+         NOT WALKED: needs deploy/change events -- this index carries request logs only
+    [NOT_VISITED ] an upstream dependency got slower
+         NOT WALKED: needs downstream call spans or a dependency's own latency series
+    [NOT_VISITED ] the host or container lost resources
+         NOT WALKED: needs node-level CPU/memory/disk metrics, which are not request logs
+
+GATE 2: NOT CLOSED
+  - [not ruled out] the rise is confined to one endpoint -- `endpoint=/api/profile` (n=54) has median 533.28 against 424.62 for the rest of the window -- +108.66, or 28% of the window's own median rise of +386.53; largest of 4 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one region -- `region=us-west-2` (n=76) has median 514.12 against 434.07 for the rest of the window -- +80.05, or 21% of the window's own median rise of +386.53; largest of 3 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
+  - [not ruled out] the rise is confined to failing requests -- no value has 30 documents on both sides of the comparison (200 (n=198 vs 2); 500 (n=2 vs 198)); at that size the comparison would be reporting subgroup size, not concentration
+  - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
+  - [not visited] an upstream dependency got slower -- needs downstream call spans or a dependency's own latency series
+  - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
+  - [no chain] no root-to-leaf path is confirmed end to end
+
+WHAT WOULD MOVE THIS:
+  go and look -- 3 branch(es) never walked:
+    - a deploy or config change landed in this window
+    - an upstream dependency got slower
+    - the host or container lost resources
+  neither -- 4 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
+    - the rise is confined to one endpoint
+    - the rise is confined to one region
+    - the rise is confined to one service
+    - the rise is confined to failing requests
+
+Work already done and still valid: 6 branch(es) settled. Being blocked at one branch does not invalidate evidence collected on another.
+
+==============================================================================
+MAGNITUDE: NOT_QUANTIFIED
+  observed effect   +1458.30
+  accounted for     +0.00
+  unexplained       +1458.30 (+100.0% of the effect)
+
+  Nothing was confirmed that claims to explain the effect, so there is
+  no explanation to size. This is not a measurement gap -- it is the
+  absence of a candidate, and Gate 2 has already said which branches
+  would have to move for one to exist.
+
+==============================================================================
+ALL FOUR CONDITIONS: NOT CLOSED
+  - [not ruled out] the rise is confined to one endpoint -- `endpoint=/api/profile` (n=54) has median 533.28 against 424.62 for the rest of the window -- +108.66, or 28% of the window's own median rise of +386.53; largest of 4 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one region -- `region=us-west-2` (n=76) has median 514.12 against 434.07 for the rest of the window -- +80.05, or 21% of the window's own median rise of +386.53; largest of 3 values compared -- elevated, but not enough to say the effect lives here
+  - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
+  - [not ruled out] the rise is confined to failing requests -- no value has 30 documents on both sides of the comparison (200 (n=198 vs 2); 500 (n=2 vs 198)); at that size the comparison would be reporting subgroup size, not concentration
+  - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
+  - [not visited] an upstream dependency got slower -- needs downstream call spans or a dependency's own latency series
+  - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
+  - [no chain] no root-to-leaf path is confirmed end to end
+  - [magnitude] NOT_QUANTIFIED: +0.00 accounted of +1458.30 observed

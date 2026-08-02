@@ -27,11 +27,11 @@ Root-cause analysis for logs that audits its own premise and refuses to name a
 cause it cannot close.
 
 > **Status: in development (hackathon entry).**
-> All three gates are implemented and mutation-verified — every rule below has
-> been deliberately broken and the test suite goes red for each. What is not yet
-> built is the retrieval that assembles a Gate 2 tree from a live index; Gate 1
-> has that path (`audit_window.py`), Gates 2 and 3 currently operate on trees
-> handed to them.
+> All three gates are implemented, mutation-verified — every rule below has been
+> deliberately broken and the suite goes red for each — and run end to end
+> against a live cluster. A captured run over all three fixtures is in
+> [`examples/gates-on-real-data.txt`](../../../../examples/gates-on-real-data.txt).
+> Known limits are stated below rather than left to be discovered.
 
 ## The problem this addresses
 
@@ -215,6 +215,55 @@ than Gate 2 had.
 that satisfies all four is reported as a chain that survived being checked — and
 still not as a cause, because the thing that would license that claim, knowing
 the counterfactual, is not in the logs.
+
+## Building the tree from an index
+
+`assemble_traversal.py` runs Gate 1, and if the premise survives, walks a
+hypothesis space against the index and hands the result to Gates 2 and 3.
+
+**The hypothesis space is declared, not discovered.** `NOT_VISITED` means
+nothing against a space the tool assembled as it went — "I explored everything I
+thought of" is complete only with respect to what it happened to think of. So
+the catalog is fixed, every entry appears in the tree whether or not it was
+probed, and hypotheses this index *cannot* answer (a deploy landed, an upstream
+dependency slowed, the host lost resources) are recorded as unwalked with the
+data that would be needed named. On a request-log index those three are the
+usual answer, and saying so is more use than a confident tour of the four
+questions the logs can answer.
+
+**Concentration is asked on the median, and that choice is the probe.** Two
+wrong ways to ask whether the rise lives in one endpoint or region, both of
+which report sample size while looking like they report concentration:
+
+- *remove the value and re-measure the window* — taking 198 of 200 documents out
+  moves p99 whatever those documents were
+- *compare the value's own p99 to the rest's* — a p99 estimated on n=49 is noisy
+  and biased high. On this project's fixtures the aggregation reads **+0.14% to
+  +21.75%** above the true value at n=200, and smaller subgroups are worse
+
+Both are Gate 1's `population_shift` confound rebuilt one gate up. The median
+survives estimation at these sizes. Once a concentration is established that
+way, removal is a fair way to *size* it.
+
+### Known limits
+
+**The concentration probe is under-powered.** On a few hundred documents split
+across a handful of values, one subgroup's median differs from the rest's by
+20–30% of the window's own movement *with no concentration present* — measured
+on a fixture where the true concentration is zero. Answering that correctly
+needs a null estimated at the same subgroup sizes, which is not built. Choosing
+a threshold that happens to clear this fixture would be fitting the constant to
+the data it is graded on. So the probe stops at `INCONCLUSIVE` in that band and
+shows its numbers: a genuine concentration below roughly half the median rise is
+reported as *elevated, not established*. It under-claims, never over-claims, and
+the miss is counted rather than hidden.
+
+**Gate 1's own ruler is unaudited.** The percentile aggregation the premise
+audit reads is an estimator, and on the negative-control fixture its error
+changes *which bucket is selected as the incident* — the tool picks a bucket
+whose true p99 is lower than another's. Gate 1 already refuses to substantiate a
+self-selected window, which contains the damage; a probe comparing two built-in
+estimators of the same quantity is not yet built.
 
 ## Development fixtures
 

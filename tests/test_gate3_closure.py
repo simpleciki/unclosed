@@ -124,6 +124,33 @@ def test_one_unmeasured_branch_blocks_the_arithmetic_even_when_another_adds_up()
     assert report.unquantified == ["cold cache"]
 
 
+def test_a_descriptive_branch_is_not_a_measurement_gap():
+    """A branch that restates the observation has no number to be missing.
+
+    Counting its absence as a gap would make every tree containing one report
+    NOT_QUANTIFIED forever -- a verdict that then says nothing about any
+    incident, because it is really reporting the shape of the tree.
+    """
+    shape = Node("the whole distribution moved", NodeState.CONFIRMED, probe="compared p50 and p99",
+                 evidence="the median moved too", explanatory=False)
+    t = tree(confirmed("deploy at 14:18", confirmed("new query plan", accounts=380.0), shape))
+    report = audit_closure(t, OBSERVED)
+    assert report.unquantified == []
+    assert report.verdict is Accounting.ACCOUNTED
+
+
+def test_nothing_confirmed_to_explain_is_reported_as_that_and_not_as_a_missing_number():
+    """"Nobody measured the candidate" and "there is no candidate" are different
+    facts, and they send the reader to different places."""
+    shape = Node("the whole distribution moved", NodeState.CONFIRMED, probe="compared p50 and p99",
+                 evidence="the median moved too", explanatory=False)
+    t = tree(confirmed("deploy at 14:18", shape, ruled_out("GC pause")))
+    report = audit_closure(t, OBSERVED)
+    assert report.verdict is Accounting.NOT_QUANTIFIED
+    assert report.unquantified == []
+    assert "absence of a candidate" in report.to_text()
+
+
 def test_not_quantified_is_not_reported_as_under_accounted():
     """Zero attributed because nobody measured is a different fact from zero attributed
     because the branches genuinely explain nothing, and conflating them would tell
