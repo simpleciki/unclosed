@@ -303,19 +303,21 @@ OUTCOMES = ("correct", "fabricated_incident", "substantiated_a_non_event",
 # Report
 # --------------------------------------------------------------------------
 
-def render(rows, transcripts, model, generated_at, trials, turn_caps, usage):
+def render(rows, transcripts, model, generated_at, trials, turn_caps, usage,
+           driver="anthropic messages api", transliterated=0, source=None):
     L, W = [], 78
     L.append("=" * W)
     L.append("unclosed -- does the skill change what an agent says?")
     L.append(f"generated {generated_at}   model {model}   {trials} run(s) per case per arm")
+    L.append(f"driver: {driver}")
     L.append("=" * W)
     L.append("")
-    L.append("Same model, same cluster, same incidents, same question, twice: once with a")
-    L.append("search tool alone, once with the same tool plus this skill. The incidents in")
-    L.append("the first four rows did not happen -- the corpus generated them, so naming")
-    L.append("anything as accounting for the rise is wrong by construction. The fifth is a")
-    L.append("real regression and is here to catch the opposite failure: a skill that buys")
-    L.append("its caution by talking an agent out of incidents that are real.")
+    L.append("Same model, same cluster, same incidents, same question, twice: once without")
+    L.append("this skill, once with it. Cases named artifact-* did not happen -- the corpus")
+    L.append("generated them, so naming anything as accounting for the rise is wrong by")
+    L.append("construction. Cases named real-* are genuine regressions, and are here to")
+    L.append("catch the opposite failure: a skill that buys its caution by talking an agent")
+    L.append("out of incidents that are real.")
     L.append("")
     L.append("Both arms were offered ARTIFACT and CANNOT-TELL in identical words. That")
     L.append("makes the arm without the skill more likely to answer cautiously, not less,")
@@ -378,6 +380,11 @@ def render(rows, transcripts, model, generated_at, trials, turn_caps, usage):
     L.append("-" * W)
     L.append("")
     L.append("  A count nobody can audit is a claim. These are the final replies, in full.")
+    if transliterated:
+        L.append(f"  {transliterated} of them contained characters outside ASCII (em-dashes,")
+        L.append("  math symbols) and were transliterated so this report survives a terminal")
+        L.append("  that is not UTF-8. That is a change to evidence, so it is said here; the")
+        L.append(f"  untouched originals are in {source}.")
     L.append("")
     for t in transcripts:
         L.append("  " + "." * 74)
@@ -388,9 +395,89 @@ def render(rows, transcripts, model, generated_at, trials, turn_caps, usage):
             L.append("    " + line)
         L.append("")
     L.append("=" * W)
-    L.append(f"tokens: {usage['input']} in, {usage['output']} out")
+    if usage["input"] or usage["output"]:
+        L.append(f"tokens: {usage['input']} in, {usage['output']} out")
     L.append("=" * W)
     return "\n".join(L)
+
+
+
+#: Answers come back from a real agent, which writes em-dashes and math symbols.
+#: This project's captured reports are ASCII so they survive a terminal whose
+#: encoding is not UTF-8. Transliterating is a change to evidence, so it is
+#: declared in the report and the untouched originals stay on disk.
+ASCII_MAP = {
+    "—": "--", "–": "-", "‘": "'", "’": "'",
+    "“": '"', "”": '"', "…": "...", "≈": "~",
+    "≥": ">=", "≤": "<=", "×": "x", "→": "->",
+    "±": "+/-", " ": " ", "•": "-",
+}
+
+
+def asciify(text):
+    """Returns (ascii_text, how_many_characters_were_changed)."""
+    out, changed = [], 0
+    for ch in text or "":
+        if ord(ch) < 128:
+            out.append(ch)
+        elif ch in ASCII_MAP:
+            out.append(ASCII_MAP[ch]); changed += 1
+        else:
+            out.append("?"); changed += 1
+    return "".join(out), changed
+
+
+CAPTURE = re.compile(r"^(?P<case>.+?)__(?P<arm>[AB])__(?P<run>\d+)\.txt$")
+
+
+def score_captured(directory: Path, args) -> int:
+    """Score answers produced elsewhere, with the reading used here and nowhere else.
+
+    The arms can be driven by something other than this file -- a coding agent
+    with a shell is a more faithful stand-in for how the skill is actually
+    consumed than a bespoke tool loop is. What must not vary with the driver is
+    how an answer is turned into a number, so that stays here and both paths
+    call it.
+    """
+    now = aligned_now()
+    truths = {c.name: c for c in build_cases(args.seed, now)}
+    rows, transcripts = {}, []
+
+    transliterated = [0]
+    files = sorted(p for p in directory.glob("*.txt") if CAPTURE.match(p.name))
+    if not files:
+        print(f"no <case>__<arm>__<run>.txt files in {directory}", file=sys.stderr)
+        return 2
+
+    for path in files:
+        m = CAPTURE.match(path.name)
+        case_name, arm, run = m["case"], m["arm"], int(m["run"])
+        if case_name not in truths:
+            print(f"unknown case in {path.name}", file=sys.stderr)
+            return 2
+        raw = path.read_text(encoding="utf-8", errors="replace").strip()
+        answer, changed = asciify(raw)
+        transliterated[0] += 1 if changed else 0
+        verdict, named = read_verdict(answer)
+        outcome = score(truths[case_name], verdict, named)
+        rows.setdefault((case_name, arm), {k: 0 for k in OUTCOMES})[outcome] += 1
+        transcripts.append({"case": case_name, "arm": arm, "run": run, "turns": "n/a",
+                            "answer": answer, "outcome": outcome,
+                            "prose_hits": names_a_cause_in_prose(answer)})
+
+    transcripts.sort(key=lambda t: (t["case"], t["arm"], t["run"]))
+    trials = max(t["run"] for t in transcripts)
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    report = render(rows, transcripts, args.model, generated_at, trials,
+                    {"A": 0, "B": 0}, {"input": 0, "output": 0}, driver=args.driver,
+                    transliterated=transliterated[0], source=str(directory))
+    print(asciify(report)[0])
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report + "\n", encoding="ascii", errors="replace")
+        print(f"\nwritten to {out}")
+    return 0
 
 
 def main() -> int:
@@ -404,7 +491,16 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--dump", action="store_true",
                     help="Print exactly what each arm is given and exit. No model calls.")
+    ap.add_argument("--score-dir", default=None,
+                    help="Score answers already captured as <case>__<arm>__<run>.txt and exit. "
+                         "For runs driven by an agent harness other than this one; the "
+                         "reading is the same either way, which is the point of it living here.")
+    ap.add_argument("--driver", default="anthropic messages api",
+                    help="Recorded in the report: what actually produced the answers.")
     args = ap.parse_args()
+
+    if args.score_dir:
+        return score_captured(Path(args.score_dir), args)
 
     if args.dump:
         for arm, (label, system, tools) in arms().items():
@@ -474,7 +570,7 @@ def main() -> int:
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report = render(rows, transcripts, args.model, generated_at, args.trials,
-                    turn_caps, usage_total)
+                    turn_caps, usage_total, driver=args.driver)
     print()
     print(report)
     if args.out:
