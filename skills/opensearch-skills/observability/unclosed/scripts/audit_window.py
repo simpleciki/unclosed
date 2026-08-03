@@ -182,6 +182,54 @@ def bucket_stats(endpoint, index, time_field, metric, bucket_minutes, gte, lt):
     return out
 
 
+def value_as_reported(endpoint, index, time_field, metric, second_clock, gte, lt, reported_at):
+    """The same statistic, over the documents that had landed when the claim was made.
+
+    `observation_moment` refutes an observation whose window had not finished
+    when it was judged, and the refutation is right: the auditor and the
+    reporter are not looking at the same documents. What it does *not* say is
+    whether the reporter's number was wrong -- and that is exactly the sentence
+    a narration reaches for next.
+
+    Left to improvise, it improvises. In the agent A/B two runs of the same
+    skill rebuilt the same 46-document slice and read different statistics off
+    it: p99 came back 77% above the settled value and the run called the report
+    untrustworthy; p50 came back equal to it and the run called the report fine.
+    Both numbers were real. Nothing in the skill said which one answers the
+    question, so which framing appeared depended on which percentile got typed.
+
+    So it is computed instead of left open, and computed as the only reading
+    that answers the claim: **the same statistic the claim is about**, over the
+    documents an ingest clock says existed at the claimed moment.
+
+    What this is, precisely -- and it is not what it is tempting to call it:
+    the set of documents whose *ingest* clock is before `reported_at`. That is
+    not "what the alert saw". A refresh interval, the alert's own query lag, and
+    a shard that had not caught up all sit between the two. It is the closest
+    reconstruction the index can support, and it is labelled as that in the
+    report rather than as the reporter's screen.
+
+    Returns `(value, n)`, or `(None, None)` when the index has no second clock
+    to ask -- absent, not zero.
+    """
+    if not second_clock or not reported_at:
+        return None, None
+    body = {
+        "size": 0,
+        "query": {"bool": {"filter": [
+            _range(time_field, gte, lt),
+            {"range": {second_clock: {"lt": reported_at}}},
+        ]}},
+        "aggs": _percentile_aggs(metric),
+    }
+    res = _get(endpoint, f"/{index}/_search", body)
+    n = res["hits"]["total"]["value"]
+    if not n:
+        return None, 0
+    value = _read(res["aggregations"], PRIMARY_ESTIMATOR)
+    return (round(value, 2) if value is not None else None), n
+
+
 def composition(endpoint, index, time_field, dim, gte, lt):
     body = {
         "size": 0,
@@ -262,6 +310,8 @@ def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, 
     b_end = _iso(datetime.fromisoformat(others[-1]["start"].replace("Z", "+00:00")) + timedelta(minutes=bucket_minutes))
 
     second_clock = next((f for f in date_fields if f != time_field), None)
+    as_reported, as_reported_n = value_as_reported(
+        endpoint, index, time_field, metric, second_clock, f_start, f_end, reported_at)
 
     return Observation(
         metric=metric,
@@ -288,6 +338,8 @@ def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, 
         scan_window_end=_iso(lt),
         scan_anchor=_iso(anchor),
         scan_anchor_source=anchor_source,
+        focus_value_as_reported=as_reported,
+        focus_count_as_reported=as_reported_n,
     ), focus
 
 

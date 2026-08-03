@@ -130,6 +130,19 @@ class Observation:
     focus_count: Optional[int] = None
     baseline_typical_count: Optional[int] = None
 
+    # The same statistic, over the documents an ingest clock says had landed by
+    # `reported_at`. Present only when the index carries a second clock and a
+    # report time was given. `None` is absent, not equal: the reconstruction was
+    # not available, which is different from it having come back the same.
+    #
+    # This exists because refuting a report as early does not say whether the
+    # reporter's *number* was wrong, and every narration wants to say so anyway.
+    # Left to pick a statistic it picks one, and p99 and p50 over a part-filled
+    # window support opposite sentences. So the reading is computed here, from
+    # the statistic the claim is about, rather than chosen downstream.
+    focus_value_as_reported: Optional[float] = None
+    focus_count_as_reported: Optional[int] = None
+
     # Categorical composition, e.g. {"/api/checkout": 0.51, ...}. Absent when
     # the index carries no dimension to group by.
     focus_composition: Optional[dict] = None
@@ -253,6 +266,33 @@ def probe_unanchored_report(obs: Observation) -> ProbeResult:
                        f"window {obs.window_start} -> {obs.window_end} is a specific, checkable claim")
 
 
+def _reconstruction(obs: Observation) -> str:
+    """What the same statistic read over the documents that had landed by then.
+
+    Carried as evidence, never as a verdict input. Whether the reporter's number
+    matches the settled one does not change whether they were looking at the
+    same data -- they were not, and that is what the probe refuted. What it
+    changes is the sentence a reader is entitled to write next, and the point of
+    computing it here is that the sentence stops depending on which percentile
+    someone downstream reaches for.
+    """
+    if obs.focus_value_as_reported is None:
+        if obs.focus_count_as_reported == 0:
+            return (". No document had been ingested by then, so the reported number cannot be "
+                    "reconstructed at all")
+        return (". The reading the reporter had cannot be reconstructed: that needs an ingest "
+                "clock to say which documents existed at the report time, and this index has none. "
+                "How far the two differ is unquantified -- which is not the same as small")
+    settled = obs.focus_value
+    ev = (f". Same statistic over the {obs.focus_count_as_reported} document(s) an ingest clock "
+          f"places before that moment: {obs.focus_value_as_reported} against {settled} once the "
+          f"window filled")
+    if settled:
+        ev += f" ({obs.focus_value_as_reported / settled:.0%} of it)"
+    return ev + (". Ingest order is the closest the index can come to what the reporter queried; "
+                 "it is not that screen")
+
+
 def probe_observation_moment(obs: Observation) -> ProbeResult:
     """When was this observed, and had the window finished by then?
 
@@ -288,7 +328,8 @@ def probe_observation_moment(obs: Observation) -> ProbeResult:
     if fraction < MIN_WINDOW_ELAPSED:
         return ProbeResult("observation_moment", story, Outcome.REFUTED,
                            ev + f" -- below {MIN_WINDOW_ELAPSED:.0%}; the reporter saw a partial window, "
-                                "and the data audited here is not the data that triggered the report")
+                                "and the data audited here is not the data that triggered the report"
+                           + _reconstruction(obs))
     return ProbeResult("observation_moment", story, Outcome.NOT_REFUTED,
                        ev + " -- the window was complete when it was judged")
 

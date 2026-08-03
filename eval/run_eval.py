@@ -31,6 +31,12 @@ What this produces, and why in this order
    answerable from the data, so no traversal assembled from one can close.
    Grading that would be grading the index.
 
+6. **What this harness cannot see.** Printed last and printed always. Every rate
+   above is a rate of a failure this corpus can produce; a category reading 0
+   because nothing triggered it is indistinguishable from one reading 0 because
+   nothing here could. At least one real defect has already landed in that gap,
+   and it is named rather than left for the next person to rediscover.
+
 Output is ASCII only: this report is read in terminals whose default encoding is
 not UTF-8, and a report that raises UnicodeEncodeError on the machine it was
 generated on has failed at the only job it has.
@@ -458,6 +464,37 @@ def render(trials, scores, results, sweep_rows, points, floor, generated_at, see
     L.append("")
     L.append("  These are not averaged. The design trades the first for the second on")
     L.append("  purpose, and one number would hide the trade being made.")
+    L.append("")
+
+    # -- 7. the blind spot --------------------------------------------------
+    L.append("-" * W)
+    L.append("7. WHAT THIS EVALUATION CANNOT SEE")
+    L.append("-" * W)
+    L.append("")
+    L.append("  Every number above is a rate of something this harness can produce. None of")
+    L.append("  them is a rate of what it cannot, and a zero printed in section 6 reads")
+    L.append("  identically either way.")
+    L.append("")
+    L.append("  Each case here is generated, indexed, audited once, and deleted. No index is")
+    L.append("  read twice, and none is read at any moment other than immediately after it")
+    L.append("  was written. A defect that appears *between* runs -- the same command over")
+    L.append("  the same unchanged data returning a different answer -- therefore cannot land")
+    L.append("  in any category above, including the empty ones.")
+    L.append("")
+    L.append("  This is not hypothetical. The scan window was anchored on the wall clock, so")
+    L.append("  the focus window moved between runs over a static index and the left edge cut")
+    L.append("  the oldest bucket in half. An agent A/B run found it because it happened to")
+    L.append("  read one index at two moments. This evaluation reported a clean sweep on both")
+    L.append("  sides of the fix -- identical verdicts, identical rates -- because reading one")
+    L.append("  index at two moments is the one thing it never does. See")
+    L.append("  examples/window-anchor.txt.")
+    L.append("")
+    L.append("  Multiple seeds per case fixed the neighbouring blindness -- a failure that")
+    L.append("  depends on where the noise fell -- and it is worth being precise that they")
+    L.append("  are different holes. Seeds vary the data. Nothing here varies the clock.")
+    L.append("")
+    L.append("  Stated as work rather than as a caveat: closing this needs a case that reads")
+    L.append("  one index more than once, at moments it chooses. The corpus has none.")
     L.append("")
     L.append("=" * W)
     return "\n".join(L)

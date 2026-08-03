@@ -1,20 +1,40 @@
-All three gates against a live OpenSearch 2.19.3 -- captured 2026-08-03
+All three gates against a live OpenSearch 2.19.3 -- captured 2026-08-02 local
+(2026-08-03 UTC; every timestamp in the runs below is UTC).
 Container bound to 127.0.0.1:9250. Fixtures from scripts/seed_logs.py.
 
 The first three runs give the tool no reported window, so it selects the worst
 bucket itself and Gate 1 refuses to substantiate a target it drew around its own
 arrows. The fourth supplies an external report and the premise clears.
+
+The fifth is the fourth with one thing changed: the same window over the same
+documents, reported two minutes in instead of at the end. It is an artifact, and
+the probe that refutes it also prints what the same statistic read over the
+documents an ingest clock places before that moment -- so a reader has the
+reporter's number rather than a choice of percentile to compute one from.
+
+Reproduce:
+  python scripts/seed_logs.py --scenario {fake-spike,real-spike,baseline} --recreate
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-fake-spike
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-baseline
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --focus-window 2026-08-03T03:10:00.000Z --reported-at 2026-08-03T03:20:00Z
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --focus-window 2026-08-03T03:10:00.000Z --reported-at 2026-08-03T03:12:00Z
+
+The window handed to runs four and five is the one the tool picks for itself in
+run two -- named in advance here so the provenance probe has a claim to check
+rather than a target this tool drew around its own arrows.
 ################################################################
 # unclosed-fake-spike  (no reported window -- self-selected)
 ################################################################
 ==============================================================================
 VERDICT: ARTIFACT
 OBSERVATION: latency_ms in focus window = 2210.7 vs baseline 325.65 (6.8x)
+SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-fake-spike at 2026-08-03T03:49:56.211000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T00:00:00.000Z -> 2026-08-03T00:10:00Z is a specific, checkable claim
+       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
   [COULD_NOT_RUN] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
        the report does not say when it was made, so it cannot be compared to the window it describes
@@ -53,11 +73,12 @@ explaining something that did not happen.
 ==============================================================================
 VERDICT: UNDECIDABLE
 OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T03:49:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T00:00:00.000Z -> 2026-08-03T00:10:00Z is a specific, checkable claim
+       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
   [COULD_NOT_RUN] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
        the report does not say when it was made, so it cannot be compared to the window it describes
@@ -88,11 +109,11 @@ Not knocked down is not the same as cleared. Missing:
   - an observation window specified before the data was examined (external report)
 
 ==============================================================================
-OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T00:00:00.000Z
+OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T03:10:00.000Z
 PREMISE (Gate 1): UNDECIDABLE
 
 TRAVERSAL:
-  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T00:00:00.000Z
+  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T03:10:00.000Z
        asked: p99 per 10m bucket over the last 6h
        got:   focus 1783.95 vs baseline 325.65 (n=200)
     [INCONCLUSIVE] the rise is confined to one endpoint
@@ -173,11 +194,12 @@ ALL FOUR CONDITIONS: NOT CLOSED
 ==============================================================================
 VERDICT: UNDECIDABLE
 OBSERVATION: latency_ms in focus window = 409.79 vs baseline 317.14 (1.3x)
+SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-baseline at 2026-08-03T03:49:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-02T20:00:00.000Z -> 2026-08-02T20:10:00Z is a specific, checkable claim
+       window 2026-08-02T23:10:00.000Z -> 2026-08-02T23:20:00Z is a specific, checkable claim
   [COULD_NOT_RUN] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
        the report does not say when it was made, so it cannot be compared to the window it describes
@@ -208,11 +230,11 @@ Not knocked down is not the same as cleared. Missing:
   - an observation window specified before the data was examined (external report)
 
 ==============================================================================
-OBSERVATION: latency_ms p99 317.14 -> 409.79 in 2026-08-02T20:00:00.000Z
+OBSERVATION: latency_ms p99 317.14 -> 409.79 in 2026-08-02T23:10:00.000Z
 PREMISE (Gate 1): UNDECIDABLE
 
 TRAVERSAL:
-  [CONFIRMED   ] latency_ms rose +92.65 in 2026-08-02T20:00:00.000Z
+  [CONFIRMED   ] latency_ms rose +92.65 in 2026-08-02T23:10:00.000Z
        asked: p99 per 10m bucket over the last 6h
        got:   focus 409.79 vs baseline 317.14 (n=200)
     [RULED_OUT   ] the rise is confined to one endpoint
@@ -287,17 +309,18 @@ ALL FOUR CONDITIONS: NOT CLOSED
 ==============================================================================
 VERDICT: SUBSTANTIATED
 OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T03:49:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T00:00:00.000Z -> 2026-08-03T00:10:00Z is a specific, checkable claim
+       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
   [NOT_REFUTED  ] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
-       reported at 2026-08-03T00:10:00Z, window 2026-08-03T00:00:00.000Z -> 2026-08-03T00:10:00Z (100% elapsed at report time) -- the window was complete when it was judged
+       reported at 2026-08-03T03:20:00Z, window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z (100% elapsed at report time) -- the window was complete when it was judged
   [NOT_REFUTED  ] window_provenance
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
-       externally reported at 2026-08-03T00:10:00Z; the window was named before this audit ran
+       externally reported at 2026-08-03T03:20:00Z; the window was named before this audit ran
   [NOT_REFUTED  ] estimator_choice
        tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
        `tdigest` sees +1458.30, `hdr` sees +1339.46 over the same documents (92% as large) -- both rulers see it; they disagree about its size by 8%, which is carried forward rather than absorbed
@@ -318,11 +341,11 @@ Every refutation attempt ran and every one failed. The observation stands.
 This pass rests on the record above, not on the absence of a complaint.
 
 ==============================================================================
-OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T00:00:00.000Z
+OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T03:10:00.000Z
 PREMISE (Gate 1): SUBSTANTIATED
 
 TRAVERSAL:
-  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T00:00:00.000Z
+  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T03:10:00.000Z
        asked: p99 per 10m bucket over the last 6h
        got:   focus 1783.95 vs baseline 325.65 (n=200)
     [INCONCLUSIVE] the rise is confined to one endpoint
@@ -393,3 +416,44 @@ ALL FOUR CONDITIONS: NOT CLOSED
   - [not visited] the host or container lost resources -- needs node-level CPU/memory/disk metrics, which are not request logs
   - [no chain] no root-to-leaf path is confirmed end to end
   - [magnitude] NOT_QUANTIFIED: +0.00 accounted of +1458.30 observed
+################################################################
+# unclosed-real-spike  (same window, same data, reported 2 minutes in)
+################################################################
+==============================================================================
+VERDICT: ARTIFACT
+OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
+SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T03:49:59.586000Z
+
+REFUTATION ATTEMPTS (what was actually checked):
+  [NOT_REFUTED  ] unanchored_report
+       tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
+       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
+  [REFUTED      ] observation_moment
+       tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
+       reported at 2026-08-03T03:12:00Z, window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z (20% elapsed at report time) -- below 90%; the reporter saw a partial window, and the data audited here is not the data that triggered the report. Same statistic over the 43 document(s) an ingest clock places before that moment: 2140.39 against 1783.95 once the window filled (120% of it). Ingest order is the closest the index can come to what the reporter queried; it is not that screen
+  [NOT_REFUTED  ] window_provenance
+       tried to show: the window was chosen after seeing the data, so finding something there proves nothing
+       externally reported at 2026-08-03T03:12:00Z; the window was named before this audit ran
+  [NOT_REFUTED  ] estimator_choice
+       tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
+       `tdigest` sees +1458.30, `hdr` sees +1339.46 over the same documents (92% as large) -- both rulers see it; they disagree about its size by 8%, which is carried forward rather than absorbed
+  [NOT_REFUTED  ] sample_size_collapse
+       tried to show: the change is arithmetic noise because almost no data landed in the window
+       focus n=200 vs baseline typical n=200 (ratio 1.000) -- volume held; the change is not a small-sample effect
+  [NOT_REFUTED  ] population_shift
+       tried to show: nothing got worse; a different mix of things is being measured
+       composition distance 0.052 across 4 categories -- same population; the comparison is like-for-like
+  [NOT_REFUTED  ] clock_semantics
+       tried to show: the window is an ingest artifact -- a replay or backfill, not live traffic
+       ingest lag p50: focus 2.2s vs baseline 2.3s (1.0x), second clock `ingested_at` -- both clocks agree; the window reflects when things happened
+  [NOT_REFUTED  ] measurement_continuity
+       tried to show: the ruler changed mid-window, so the two numbers are not the same measurement
+       window spans 1 index(es); `latency_ms` mapped as ['float'] -- one consistent mapping; the ruler did not change
+
+The observation is explained by how it was measured: observation_moment.
+No causal investigation should proceed from this premise.
+
+==============================================================================
+Gate 2 not run: the premise did not survive Gate 1.
+Walking a hypothesis space below an artifact would produce a tidy tree
+explaining something that did not happen.

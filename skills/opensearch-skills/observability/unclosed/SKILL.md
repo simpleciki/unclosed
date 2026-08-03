@@ -116,6 +116,35 @@ that selects its own worst bucket will always find one:
 - a window **judged before it finished** is an artifact: the reporter and the
   auditor are looking at two different datasets that share a name
 
+**A window judged early is refuted for comparability, and that is the whole of
+what it means.** The refutation says the auditor and the reporter are not
+holding the same documents. It does not say the reporter's *number* was wrong —
+and that is the next sentence every narration wants to write. Left open, it gets
+written either way: in the agent evaluation two runs of this skill rebuilt the
+same 46-document slice by hand and read different statistics off it. p99 came
+back 77% above the settled value and the run called the report untrustworthy;
+p50 came back equal to it and the run called the report fine. Both numbers were
+real, both runs had read this file, and nothing in it said which reading answers
+the question.
+
+So it is computed rather than chosen downstream: **the same statistic the claim
+is about**, over the documents an ingest clock places before the report time,
+printed in that probe's evidence beside the settled value. Both readings then
+exist *in the report* — which is what the narration guard demands of any number
+that appears in prose, so a percentile queried by hand afterwards is not in the
+report and does not pass.
+
+What the reconstruction is not: what the alert saw. A refresh interval, the
+alert's own query lag, and a shard that had not caught up all sit between ingest
+order and that screen. It is the closest the index can come, and it is labelled
+as that. Where the index carries one clock the reconstruction cannot be done at
+all, and the report says the gap is **unquantified** — which is not a synonym for
+small.
+
+It never moves the verdict. A reconstruction that happens to match the settled
+value does not make two datasets one dataset, and a probe clearable by a
+coincidence would be an escape hatch reachable by luck.
+
 **And the range the auditor swept is part of the claim too.** Those four ask who
 chose the *focus* window. One question sits outside them: who chose the six
 hours it was selected from. The obvious answer — `now - lookback .. now` — hangs
@@ -445,6 +474,17 @@ Each case is run against several independently generated datasets. One draw
 cannot distinguish a rule that holds from noise that fell kindly — and the
 over-claim documented under **Known limits** appears in roughly half of runs,
 which a single-draw evaluation reports as a clean sweep.
+
+The report's last section is what the evaluation **cannot** see, printed always
+and printed as prominently as the rates. Every case here is generated, indexed,
+audited once and deleted, so no index is ever read twice or at a moment it did
+not choose — and a defect that only appears between runs cannot land in any
+category, including the ones printed as zero. The wall-clock window anchor was
+exactly that defect: found by an agent run that read one index at two moments,
+and scored a clean sweep by this harness on both sides of the fix. Seeds vary
+the data; nothing here varies the clock. A category reading 0 because nothing
+triggered it is indistinguishable from one reading 0 because nothing could, so
+the gap is named rather than left to be rediscovered.
 
 ## Development fixtures
 
