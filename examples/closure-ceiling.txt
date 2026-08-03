@@ -1,0 +1,254 @@
+==============================================================================
+unclosed -- the closure ceiling
+==============================================================================
+
+The question this answers: can an assembled traversal close at all?
+
+Until now the answer was unknown rather than no. Three branches -- a deploy
+landed, a dependency slowed, the host lost resources -- were appended
+NOT_VISITED unconditionally, and any unwalked branch keeps a chain open. So the
+closure verdict was a constant, and a refusal that can never be lifted reports
+nothing. Gate 1's own rule turned on the gate that owns it.
+
+Those three are now walked when the caller points at a source for them, and the
+runs below confirm that half works: with companions pointed at, unwalked
+branches go to zero; in the control, the same three are still unwalked.
+
+The chain still did not close. 0 of 11 runs, across three effect sizes. What
+stops it is not missing data, and it is not bad luck.
+
+WHAT ACTUALLY STOPS IT
+----------------------
+
+A concentration verdict has three bands:
+
+    CONFIRMED     p <= 0.05                 stands out from the null
+    RULED_OUT     excess <= null_median     at or below the middle of it
+    INCONCLUSIVE  everything between        elevated, not established
+
+Closure requires every branch to be DISPOSED, and INCONCLUSIVE is not disposed.
+So a chain closes only if every *other* declared dimension lands in the lower
+half of its own null.
+
+For a dimension with nothing concentrated in it, the observed excess is a draw
+from that null. Landing at or below its median is therefore roughly a coin
+flip -- by definition, not by accident. With three other dimensions:
+
+    P(close) ~ 0.5^3 = 12.5%   on data with no ambiguity in it at all
+
+Measured here it is worse, because a real concentrated rise leaks into the other
+dimensions: a subgroup that happens to hold a few more of the raised requests
+carries a higher median. Across 33 innocent-dimension outcomes in the runs
+below, 12 came back RULED_OUT and 21 came back INCONCLUSIVE -- 36%, not 50%.
+
+    P(close) ~ 0.36^3 = 4.7%   -> 0.5 closures expected in 11 runs; 0 observed
+
+The leak is visible directly in the sweep. Dropping the planted effect from a
+median of 900ms to 160ms moved `region` from INCONCLUSIVE in 3 of 5 runs to 0 of
+3. It did not move `service`, which was INCONCLUSIVE in 8 of 8 runs at every
+effect size -- so leakage is part of the story and not all of it. The rest is
+the coin flip.
+
+THE PART THAT IS A DESIGN STATEMENT, NOT A BUG
+----------------------------------------------
+
+Naming a hypothesis this data cannot settle is the central claim of this skill:
+a tree that omits its unwalked branches looks complete, and looking complete is
+the failure being attacked. But every declared dimension is another coin that
+has to land the same way, so **each hypothesis added halves the chance of ever
+closing a chain.** Honest completeness and the closure criterion pull in
+opposite directions, and the current resolution is that nothing closes.
+
+That is not a defect in any one line of code. It is a choice about what
+RULED_OUT should mean: "at the middle of the null" (what it means now, so an
+innocent dimension clears half the time) or "not distinguishable from the null"
+(p > alpha, so an innocent dimension clears 95% of the time, and closure with
+three others goes from 12.5% to 86%). The second keeps all three reporting bands
+and changes only which of them blocks a chain. Neither is written here, because
+picking one is a decision about what this tool is for, not a defect to repair.
+
+WHAT THIS DOES NOT SHOW
+-----------------------
+
+That real incidents should close. They mostly should not, and the shipping
+corpus says so for a different and better reason: on a request-log index the
+hypotheses that would explain a rise are usually not in the data. This measures
+only whether the criteria are reachable when the data *is* there.
+
+The runs below were pre-registered -- corpus shape, companion shape, seed count
+and the control were fixed before the first run and not adjusted afterwards.
+
+==============================================================================
+RUN -- planted effect: median 900ms, 5 seeds
+==============================================================================
+before the first run, and not reshaped afterwards:
+
+  primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
+                  regions assigned independently of endpoint; 10% of requests
+                  fail. The focus bucket raises `/api/checkout` only.
+  companions      change events (deploys, none inside the focus bucket),
+                  a dependency latency series, a node CPU series -- both series
+                  flat, so the branches must come back RULED_OUT rather than
+                  CONFIRMED.
+  report          external, filed at the end of the window.
+  runs            5 independent seeds.
+  control         the same primary index with no companions pointed at. It must
+                  NOT close. If both close, the companions changed nothing and
+                  the experiment is void.
+
+What this does and does not test. It does not test whether real incidents
+usually close -- they do not, and the corpus that ships says so. It tests
+whether the closure criteria are *satisfiable end to end* by an assembled
+traversal, which until now was unknown: three branches were appended
+NOT_VISITED unconditionally, so the closure verdict was a constant.
+
+Volume is what makes `status` comparable here, not the error rate: 10% of 500
+is above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
+different system; raising the failure rate to clear a floor would be tuning the
+corpus against its own grader.
+
+------------------------------------------------------------------------------
+seed 4101:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one region -- `us-east-1` (n=163) sits +30.32 from its own level outside this window and the rest sit +16.79 f
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=150) sits +24.77 from its own level outside this window and the rest sit +15.72
+    still open: [not ruled out] the rise is confined to failing requests -- `200` (n=436) sits +21.82 from its own level outside this window and the rest sit +5.25 fr
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 7 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one region -- `eu-central-1` (n=174) sits +37.85 from its own level outside this window and the rest sit +19.3
+    still open: [not ruled out] the rise is confined to one service (service=checkout-api) -- `checkout-api` (n=168) sits +46.45 from its own level outside this windo
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 6 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=167) sits +32.73 from its own level outside this window and the rest sit +19.71
+    still open: [not ruled out] the rise is confined to failing requests -- `200` (n=440) sits +25.66 from its own level outside this window and the rest sit +8.40 fr
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    still open: [magnitude] NOT_QUANTIFIED: +1927.69 accounted of +1909.04 observed
+    control blocked by 6 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4104:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one region -- `us-west-2` (n=172) sits +30.35 from its own level outside this window and the rest sit +17.33 f
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=160) sits +32.13 from its own level outside this window and the rest sit +18.87
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 6 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4105:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `checkout-api` (n=178) sits +29.78 from its own level outside this window and the rest sit +20.
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 5 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 0/5
+closed in control:      0/5  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- planted effect: median 300ms, 3 seeds
+==============================================================================
+before the first run, and not reshaped afterwards:
+
+  primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
+                  regions assigned independently of endpoint; 10% of requests
+                  fail. The focus bucket raises `/api/checkout` only.
+  companions      change events (deploys, none inside the focus bucket),
+                  a dependency latency series, a node CPU series -- both series
+                  flat, so the branches must come back RULED_OUT rather than
+                  CONFIRMED.
+  report          external, filed at the end of the window.
+  runs            5 independent seeds.
+  control         the same primary index with no companions pointed at. It must
+                  NOT close. If both close, the companions changed nothing and
+                  the experiment is void.
+
+What this does and does not test. It does not test whether real incidents
+usually close -- they do not, and the corpus that ships says so. It tests
+whether the closure criteria are *satisfiable end to end* by an assembled
+traversal, which until now was unknown: three branches were appended
+NOT_VISITED unconditionally, so the closure verdict was a constant.
+
+Volume is what makes `status` comparable here, not the error rate: 10% of 500
+is above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
+different system; raising the failure rate to clear a floor would be tuning the
+corpus against its own grader.
+
+------------------------------------------------------------------------------
+seed 4101:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one region -- `us-east-1` (n=163) sits +27.02 from its own level outside this window and the rest sit +13.43 f
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=150) sits +24.51 from its own level outside this window and the rest sit +14.19
+    still open: [not ruled out] the rise is confined to failing requests -- `200` (n=436) sits +19.72 from its own level outside this window and the rest sit +4.87 fr
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 7 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `checkout-api` (n=168) sits +36.77 from its own level outside this window and the rest sit +15.
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 5 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=167) sits +32.67 from its own level outside this window and the rest sit +18.34
+    still open: [not ruled out] the rise is confined to failing requests -- `200` (n=440) sits +22.82 from its own level outside this window and the rest sit +6.54 fr
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    still open: [magnitude] NOT_QUANTIFIED: +443.01 accounted of +424.36 observed
+    control blocked by 6 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 0/3
+closed in control:      0/3  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- planted effect: median 160ms, 3 seeds
+==============================================================================
+before the first run, and not reshaped afterwards:
+
+  primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
+                  regions assigned independently of endpoint; 10% of requests
+                  fail. The focus bucket raises `/api/checkout` only.
+  companions      change events (deploys, none inside the focus bucket),
+                  a dependency latency series, a node CPU series -- both series
+                  flat, so the branches must come back RULED_OUT rather than
+                  CONFIRMED.
+  report          external, filed at the end of the window.
+  runs            5 independent seeds.
+  control         the same primary index with no companions pointed at. It must
+                  NOT close. If both close, the companions changed nothing and
+                  the experiment is void.
+
+What this does and does not test. It does not test whether real incidents
+usually close -- they do not, and the corpus that ships says so. It tests
+whether the closure criteria are *satisfiable end to end* by an assembled
+traversal, which until now was unknown: three branches were appended
+NOT_VISITED unconditionally, so the closure verdict was a constant.
+
+Volume is what makes `status` comparable here, not the error rate: 10% of 500
+is above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
+different system; raising the failure rate to clear a floor would be tuning the
+corpus against its own grader.
+
+------------------------------------------------------------------------------
+seed 4101:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=150) sits +20.51 from its own level outside this window and the rest sit +7.20 
+    still open: [not ruled out] the rise is confined to failing requests -- `200` (n=436) sits +13.81 from its own level outside this window and the rest sit +0.86 fr
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 6 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `checkout-api` (n=168) sits +20.01 from its own level outside this window and the rest sit +11.
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    still open: [magnitude] UNDER_ACCOUNTED: +81.58 accounted of +114.75 observed
+    control blocked by 6 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service -- `storefront` (n=167) sits +21.58 from its own level outside this window and the rest sit +13.06
+    still open: [not ruled out] the rise is confined to failing requests -- `200` (n=440) sits +17.39 from its own level outside this window and the rest sit +6.54 fr
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    still open: [magnitude] NOT_QUANTIFIED: +96.57 accounted of +77.92 observed
+    control blocked by 7 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 0/3
+closed in control:      0/3  (must be 0)
+==============================================================================
+

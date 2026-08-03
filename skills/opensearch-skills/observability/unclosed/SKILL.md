@@ -324,6 +324,24 @@ data that would be needed named. On a request-log index those three are the
 usual answer, and saying so is more use than a confident tour of the four
 questions the logs can answer.
 
+**Unanswerable by this index is not unanswerable.** Most clusters carrying
+request logs also carry deploy events, dependency latencies and node metrics — in
+*other* indices, which is a different statement from "not available". Point
+`--change-events`, `--dependency` or `--host-metrics` at one and that branch is
+walked like any other; leave it and the branch stays unwalked and the chain stays
+open. An earlier version appended all three NOT_VISITED unconditionally, and on a
+cluster that did carry deploy events the printed reason — *needs deploy/change
+events* — was false. The events existed and the tool had not looked.
+
+An event branch is ruled out only where the source was recording: an index
+holding no events anywhere in the scanned span cannot separate *none happened*
+from *none are logged here*, so it declines instead. A series branch asks whether
+its median in the focus bucket sits outside the range every other bucket
+occupied — non-parametric on purpose, since a fitted threshold here would be a
+constant fitted to the data it grades, which this project has already had to
+remove once. That rule carries its own false-confirm rate of about 2/37 on a
+36-bucket scan, for the same reason reading the highest bar in a chart does.
+
 **Concentration is asked on the median, and that choice is the probe.** Two
 wrong ways to ask whether the rise lives in one endpoint or region, both of
 which report sample size while looking like they report concentration:
@@ -389,6 +407,25 @@ at 14% in none. The 47% rung was found in 4 of 5 by an earlier null that shuffle
 group labels; that null also confirmed a concentration that did not exist, and
 the power was given up to stop it. A miss costs a finding; a false confirmation
 costs the reason to believe the findings that remain.
+
+**A chain almost never closes, and the reason is arithmetic rather than
+missing data.** Closure needs every branch DISPOSED, and `INCONCLUSIVE` is not
+disposed. A dimension is ruled out when its excess sits *at or below the middle
+of its own null* — so for a dimension with nothing concentrated in it, whose
+excess is a draw from that very null, being ruled out is about a coin flip. With
+three other declared dimensions the ceiling is **0.5³ ≈ 12.5%** on data with no
+ambiguity in it at all, and measured on a corpus built so every branch has an
+answer it came out lower: 12 of 33 innocent dimensions were ruled out, 0 of 11
+runs closed. See [`examples/closure-ceiling.txt`](../../../../examples/closure-ceiling.txt).
+
+This is the honest-completeness principle billing itself. Every hypothesis added
+to the declared catalog is another coin that has to land the same way, so naming
+more of them — the thing this skill argues for — makes closure geometrically less
+likely. Whether that is right depends on what `RULED_OUT` should mean: *at the
+middle of the null*, as now, or *not distinguishable from it* (p > alpha), which
+would keep all three reporting bands and take the same ceiling to about 86%. The
+second is not implemented, because choosing is a decision about what the tool is
+for and not a defect to repair quietly.
 
 **A rise that is multiplicative rather than additive will still read as
 concentrated.** Each group's normal is subtracted in milliseconds, because the

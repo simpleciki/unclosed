@@ -279,8 +279,10 @@ def test_every_declared_hypothesis_appears_whether_or_not_it_was_probed(
     for _, statement in at.CONCENTRATION_DIMENSIONS:
         assert any(h.startswith(statement) for h in hypotheses)
 
+    # With no external source pointed at, every one of them is still unwalked --
+    # and still present. Naming a branch you cannot answer is the point.
     unwalked = run.traversal.not_visited
-    assert len(unwalked) == len(at.OUT_OF_INDEX)
+    assert len(unwalked) == len(at.EXTERNAL_HYPOTHESES)
     for node in unwalked:
         assert node.not_visited_reason, "an unwalked branch has to say what it would need"
 

@@ -173,17 +173,142 @@ CONCENTRATION_DIMENSIONS = (
     ("status", "the rise is confined to failing requests"),
 )
 
-#: Hypotheses a latency log cannot answer, named anyway. Leaving them out would
-#: make the tree look complete; naming them is the difference between "nothing
-#: else to check" and "the rest is not in this data".
-OUT_OF_INDEX = (
-    ("a deploy or config change landed in this window",
+#: Hypotheses a request log cannot answer *by itself*, named anyway. Leaving them
+#: out would make the tree look complete; naming them is the difference between
+#: "nothing else to check" and "the rest is not in this data".
+#:
+#: They are not, however, unanswerable. Most clusters carrying request logs also
+#: carry deploy events, dependency latencies and node metrics -- in other
+#: indices, which is a different statement from "not available". Until the caller
+#: points at one, each stays NOT_VISITED and the chain stays open; pointed at
+#: one, the branch is walked and disposed of like any other.
+#:
+#: The earlier version appended all three as NOT_VISITED unconditionally, and
+#: that had two costs. It made closure unreachable by construction, so the
+#: closure verdict was a constant rather than a judgement -- a refusal that can
+#: never be lifted is not a finding. And on a cluster that *did* carry deploy
+#: events the printed reason, "needs deploy/change events", was false: the events
+#: existed and the tool had not looked.
+#:
+#: `kind` decides how the branch is walked. `events` asks whether a thing
+#: happened in the window; `series` asks whether a number did something in the
+#: window it did not do in any other bucket of the scan.
+EXTERNAL_HYPOTHESES = (
+    ("change", "events", "a deploy or config change landed in this window",
      "deploy/change events -- this index carries request logs only"),
-    ("an upstream dependency got slower",
+    ("dependency", "series", "an upstream dependency got slower",
      "downstream call spans or a dependency's own latency series"),
-    ("the host or container lost resources",
+    ("host", "series", "the host or container lost resources",
      "node-level CPU/memory/disk metrics, which are not request logs"),
 )
+
+#: Baseline buckets a series needs before its ordinary range means anything.
+#: Below this the range is an artefact of how few readings there were, and the
+#: branch declines rather than comparing against a normal it cannot establish --
+#: the same rule the concentration probe applies to a subgroup with no history.
+MIN_BASELINE_BUCKETS = 5
+
+
+def _count(endpoint, index, query):
+    body = {"size": 0, "track_total_hits": True, "query": query}
+    total = _post(endpoint, f"/{index}/_search", body)["hits"]["total"]
+    return total["value"] if isinstance(total, dict) else total
+
+
+def _bucket_medians(endpoint, index, time_field, metric, gte, lt, bucket_minutes):
+    body = {
+        "size": 0,
+        "query": _window(time_field, gte, lt),
+        "aggs": {"per_bucket": {
+            "date_histogram": {"field": time_field, "fixed_interval": f"{bucket_minutes}m",
+                               "min_doc_count": 1},
+            "aggs": {"p": {"percentiles": {"field": metric, "percents": [50]}}},
+        }},
+    }
+    res = _post(endpoint, f"/{index}/_search", body)
+    out = []
+    for b in res["aggregations"]["per_bucket"]["buckets"]:
+        v = b["aggs"]["p"]["values"]["50.0"] if "aggs" in b else b["p"]["values"]["50.0"]
+        if v is not None:
+            out.append((b["key_as_string"], v))
+    return out
+
+
+def _event_node(endpoint, statement, needs, source, time_field, focus_start, focus_end,
+                scan_start, scan_end):
+    """Did a thing of this kind happen inside the window?
+
+    Absence is only a ruling when presence was detectable. An index that holds
+    no events anywhere in the scanned span cannot distinguish "no deploy
+    happened" from "deploys are not recorded here", and reporting the first
+    would be reading an empty source as evidence. That case stays unwalked and
+    says which of the two it cannot tell apart.
+    """
+    in_window = _count(endpoint, source, _window(time_field, focus_start, focus_end))
+    in_scan = _count(endpoint, source, _window(time_field, scan_start, scan_end))
+    probe = f"count of `{source}` documents in the window, against the whole scanned span"
+    if in_window:
+        return Node(statement, NodeState.CONFIRMED, probe=probe,
+                    evidence=(f"{in_window} event(s) in {focus_start} -> {focus_end}, "
+                              f"{in_scan} across the scanned span"))
+    if not in_scan:
+        return Node(statement, NodeState.NOT_VISITED,
+                    not_visited_reason=(f"`{source}` holds no events anywhere in the scanned span, so "
+                                        f"an empty window cannot separate 'none happened' from 'none "
+                                        f"recorded' -- {needs}"))
+    return Node(statement, NodeState.RULED_OUT, probe=probe,
+                evidence=(f"no event in {focus_start} -> {focus_end}; {in_scan} elsewhere in the "
+                          f"scanned span, so the source was recording"))
+
+
+def _series_node(endpoint, statement, needs, source, field, time_field, focus_start, focus_end,
+                 scan_start, scan_end, bucket_minutes):
+    """Did this number do something in the window it does not do otherwise?
+
+    Threshold-free on purpose. A fitted constant here would be a constant fitted
+    to the data it grades, which this project has already had to remove once. The
+    question asked instead is non-parametric and uses the series' own behaviour
+    as the ruler: bucket the scanned span the same way the latency was bucketed,
+    and ask whether the focus bucket's median sits outside the range every other
+    bucket occupied. Inside that range is not evidence of nothing happening -- it
+    is evidence this series did nothing unusual, which is what ruling the branch
+    out means and all it means.
+    """
+    buckets = _bucket_medians(endpoint, source, time_field, field, scan_start, scan_end, bucket_minutes)
+    focus = [v for start, v in buckets if start == focus_start]
+    others = [v for start, v in buckets if start != focus_start]
+    probe = (f"`{field}` median per {bucket_minutes}m bucket in `{source}`, focus against the "
+             f"range of every other bucket in the scanned span")
+    if not focus:
+        return Node(statement, NodeState.NOT_VISITED,
+                    not_visited_reason=(f"`{source}` carries no `{field}` reading in {focus_start}, so "
+                                        f"the window it would be judged on is empty -- {needs}"))
+    if len(others) < MIN_BASELINE_BUCKETS:
+        return Node(statement, NodeState.NOT_VISITED,
+                    not_visited_reason=(f"`{source}` has {len(others)} other bucket(s) of `{field}` in "
+                                        f"the scanned span; below {MIN_BASELINE_BUCKETS} there is no "
+                                        f"ordinary range to compare against -- {needs}"))
+    value, lo, hi = focus[0], min(others), max(others)
+    ev = (f"`{field}` median {value:.2f} in the window; {lo:.2f}..{hi:.2f} across the other "
+          f"{len(others)} bucket(s)")
+    if value > hi or value < lo:
+        return Node(statement, NodeState.CONFIRMED, probe=probe,
+                    evidence=ev + " -- outside anything it did in the scanned span")
+    return Node(statement, NodeState.RULED_OUT, probe=probe,
+                evidence=ev + " -- inside the range it occupies in ordinary buckets")
+
+
+def _external_node(endpoint, key, kind, statement, needs, external, time_field,
+                   focus_start, focus_end, scan_start, scan_end, bucket_minutes):
+    source = (external or {}).get(key)
+    if not source:
+        return Node(statement, NodeState.NOT_VISITED, not_visited_reason=f"needs {needs}")
+    if kind == "events":
+        return _event_node(endpoint, statement, needs, source, time_field,
+                           focus_start, focus_end, scan_start, scan_end)
+    index, field = source
+    return _series_node(endpoint, statement, needs, index, field, time_field,
+                        focus_start, focus_end, scan_start, scan_end, bucket_minutes)
 
 
 def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_p99,
@@ -329,7 +454,7 @@ class Assembled(NamedTuple):
 
 
 def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, lookback_hours,
-             focus_window=None, reported_at=None, as_of=None) -> Assembled:
+             focus_window=None, reported_at=None, as_of=None, external=None) -> Assembled:
     obs, focus = build_observation(endpoint, index, metric, time_field, dimension,
                                    bucket_minutes, lookback_hours, focus_window, reported_at, as_of)
     premise = audit(obs)
@@ -392,9 +517,11 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
     )
 
     children.append(shape)
-    for statement, needs in OUT_OF_INDEX:
-        children.append(Node(statement, NodeState.NOT_VISITED,
-                             not_visited_reason=f"needs {needs}"))
+    for key, kind, statement, needs in EXTERNAL_HYPOTHESES:
+        children.append(_external_node(
+            endpoint, key, kind, statement, needs, external, time_field,
+            obs.window_start, obs.window_end, obs.scan_window_start, obs.scan_window_end,
+            bucket_minutes))
 
     root = Node(
         f"{metric} rose {observed_effect:+.2f} in {obs.window_start}",
@@ -427,11 +554,29 @@ def main() -> int:
     ap.add_argument("--as-of", default=None,
                     help="ISO moment the lookback ends. Without it the window is anchored on the "
                          "newest document in the index, never on the wall clock.")
+    ap.add_argument("--change-events", default=None, metavar="INDEX",
+                    help="Index of deploy/config change events. Without it that branch stays "
+                         "unwalked and the chain cannot close.")
+    ap.add_argument("--dependency", default=None, metavar="INDEX:FIELD",
+                    help="A dependency's own latency series, e.g. dep-latency:latency_ms")
+    ap.add_argument("--host-metrics", default=None, metavar="INDEX:FIELD",
+                    help="A node-level resource series, e.g. node-metrics:cpu_pct")
     args = ap.parse_args()
+
+    def _pair(value, flag):
+        if not value:
+            return None
+        if ":" not in value:
+            raise SystemExit(f"{flag} takes INDEX:FIELD, got {value!r}")
+        return tuple(value.split(":", 1))
+
+    external = {"change": args.change_events,
+                "dependency": _pair(args.dependency, "--dependency"),
+                "host": _pair(args.host_metrics, "--host-metrics")}
 
     run = assemble(args.endpoint, args.index, args.metric, args.time_field, args.dimension,
                    args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at,
-                   args.as_of)
+                   args.as_of, external)
     premise, traversal = run.premise, run.traversal
     observed_effect, uncertainty = run.observed_effect, run.uncertainty
 
