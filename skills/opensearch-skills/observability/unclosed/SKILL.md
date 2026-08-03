@@ -280,56 +280,85 @@ which report sample size while looking like they report concentration:
 Both are Gate 1's `population_shift` confound rebuilt one gate up. The median
 survives estimation at these sizes.
 
-**And the gap is judged against a null, not a threshold.** Some value's median is
-always higher than the rest's, so the question is never whether a gap exists but
-whether this one is larger than the labels produce by accident. The group labels
-are shuffled over the same documents a few hundred times, and each shuffle yields
-a largest-subgroup-gap; together they are the distribution of that statistic when
-the labels carry no information, at these subgroup sizes and on this data's own
-spread. A gap in the top 5% of that distribution is confirmed; one at its middle
-is the dimension being ruled out; between them is *elevated, not established*.
+**And each value is measured against its own normal, not against the rest.** A
+checkout path that writes to a database is slower than a health check in every
+window, including the quiet ones. Asked whether its median exceeds the rest's,
+the answer is yes, today and every day — so before anything is compared, every
+latency has its own group's median from *outside* the focus window subtracted
+from it. What is left is how far that group has moved from where it normally
+sits. A gap that was always there subtracts out; a gap that is new does not.
+Without this step the probe reports *this subgroup is slow* while appearing to
+report *this subgroup got slow*, and the evaluation measured it doing exactly
+that in 5 runs of 5. A value with too little history to establish a normal is
+dropped and named rather than compared against a borrowed one.
 
-The null has to be a null of the **maximum**, because the probe reports the
-largest gap among several values — comparing a maximum against the null of a
-single comparison fires on the most extreme of four groups far more often than
+**And the change is judged against a null, not a threshold.** Some value always
+moved most, so the question is never whether a change exists but whether this one
+is larger than a quiet window produces by accident. The window is redrawn a few
+hundred times with every group held at one common level, each redraw yielding a
+largest-subgroup-change; together they are the distribution of that statistic
+when nothing is concentrated, at these subgroup sizes and on this data's own
+spread. A change in the top 5% of that distribution is confirmed; one at its
+middle is the dimension being ruled out; between them is *elevated, not
+established*.
+
+Each group is redrawn **from its own latencies**. Shuffling the labels over the
+pooled ones is simpler and was tried first, but it gives every group the average
+spread — and a slow subgroup varies more in milliseconds for the same reason it
+is slow, so the widest group ends up judged against variation that is not its
+own. The null also has to be a null of the **maximum**, because the probe reports
+the largest change among several values; comparing a maximum against the null of
+a single comparison fires on the most extreme of four groups far more often than
 the declared rate, which is the same error as reading the highest bucket in a
 chart as though someone had nominated it in advance.
 
-This replaced a constant that required the gap to reach 50% of the window's own
-median rise. Noise between medians scales with the spread of the data, so a fixed
-share is too strict at one scale and too lax at another; the evaluation caught it
-being both. Once a concentration stands out from the null, removal is a fair way
-to *size* it.
+The first version of this was a constant: the gap had to reach 50% of the
+window's own median rise. Noise between medians scales with the spread of the
+data, so a fixed share is too strict at one scale and too lax at another; the
+evaluation caught it being both. Once a concentration stands out from the null,
+removal is a fair way to *size* it.
 
 ### Known limits
 
 Every figure below is measured rather than estimated, and the run that produced
 it is in [`examples/miss-rate.txt`](../../../../examples/miss-rate.txt).
 
-**The concentration probe is under-powered.** Reliable detection begins at a
-true concentration of **68% of the window's own median rise**, measured across a
-graded sweep with five independently generated datasets at each strength. Below
-that, a genuine concentration is reported as *elevated, not established*: at 47%
-it is found in 4 runs of 5, at 24% in 1, and at 14% in none.
+**The concentration probe is under-powered, and was made more so on purpose.**
+Reliable detection begins at a true concentration of **68% of the window's own
+median rise**, measured across a graded sweep with five independently generated
+datasets at each strength. Below that, a genuine concentration is reported as
+*elevated, not established*: at 47% it is found in 2 runs of 5, at 24% in 1, and
+at 14% in none. The 47% rung was found in 4 of 5 by an earlier null that shuffled
+group labels; that null also confirmed a concentration that did not exist, and
+the power was given up to stop it. A miss costs a finding; a false confirmation
+costs the reason to believe the findings that remain.
 
-**A subgroup that is permanently slower is confirmed as a concentration, every
-time.** The null is built by shuffling the group labels within the focus window,
-which asks whether the gap is larger than chance produces — not whether the gap
-is *new*. On a fixture where one endpoint runs four times slower in every bucket
-and the whole index then rises by the same amount, the subgroup gap is unchanged
-and explains none of the rise, and the probe confirms it in **5 runs of 5**. The
-answer is a null drawn from the baseline windows rather than from shuffled
-labels, and it is not built. Until it is, read a `CONFIRMED` concentration as
-*this subgroup is slower*, which is weaker than *this subgroup got slower*.
+**A rise that is multiplicative rather than additive will still read as
+concentrated.** Each group's normal is subtracted in milliseconds, because the
+observation being explained is in milliseconds. If everything genuinely doubles,
+a slow subgroup gains more absolute milliseconds than a fast one and this probe
+will call that a concentration. No case in the corpus tests it, so unlike every
+other figure here this limit is *stated and not measured*.
+
+**A group that varies far more than the rest is judged more loosely.** The null
+redraws each group from its own latencies, and that spread is estimated from one
+window — around 50 documents in these fixtures. The wider a group is relative to
+the others, the noisier both the statistic and its threshold become. The fixture
+covering this runs one endpoint about six times slower than the rest before the
+rise, and is clean in 5 runs of 5; nothing measures what happens further out.
 
 **The 5% is per dimension and four are tested**, so a run carries roughly an 18%
 chance of confirming something somewhere when nothing is concentrated anywhere.
+This is the source of every false confirmation left in the corpus.
 
-An earlier version of this probe used a constant instead of a null — the excess
-had to reach 50% of the window's own median rise — and the same harness caught
-that failing in both directions at once, including confirming a concentration on
-an index where nothing had happened in 3 runs of 5. Both directions came from
-the same absence.
+Two earlier versions of this probe were caught by the same harness. The first
+used a constant instead of a null — the excess had to reach 50% of the window's
+own median rise — and failed in both directions at once, including confirming a
+concentration on an index where nothing had happened in 3 runs of 5. The second
+had a null but no baseline, so it asked whether a gap was larger than chance
+produces and never whether the gap was *new*: on a fixture where one endpoint is
+permanently slower and everything then rises by the same amount, it confirmed a
+concentration in **5 runs of 5**. Both are now measured at 5 of 5 correct.
 
 **Two estimators are not a confidence interval.** The eighth probe establishes
 that the reading is not an artifact of one particular method. It does not bound

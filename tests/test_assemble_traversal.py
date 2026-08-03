@@ -112,10 +112,12 @@ def sample_from(groups, seed=7):
     return rows
 
 
-def _concentration(monkeypatch, sample, removal_p99=None, focus_p99=900.0, truncated=False):
+def _concentration(monkeypatch, sample, removal_p99=None, focus_p99=900.0, truncated=False,
+                   baseline=()):
     monkeypatch.setattr(at, "_percentiles", lambda *a, **k: {"99.0": removal_p99})
     return at._concentration_node("e", "i", "endpoint", "the rise is confined to one endpoint",
-                                  "latency_ms", {"q": 1}, focus_p99, sample, truncated)
+                                  "latency_ms", {"q": 1}, focus_p99, sample, truncated,
+                                  baseline)
 
 
 def test_a_dimension_with_one_value_cannot_separate_anything(monkeypatch):
@@ -161,7 +163,7 @@ def test_one_distribution_under_four_labels_does_not_confirm_anything(monkeypatc
     value, node = _concentration(monkeypatch, sample_from({f"/{c}": (50, 80.0) for c in "abcd"}))
     assert value is None
     assert node.state in (NodeState.RULED_OUT, NodeState.INCONCLUSIVE)
-    assert "Shuffling the labels" in node.evidence
+    assert "Redrawing each group" in node.evidence
 
 
 def test_a_window_whose_median_barely_moved_no_longer_manufactures_a_finding(monkeypatch):
@@ -178,7 +180,7 @@ def test_a_window_whose_median_barely_moved_no_longer_manufactures_a_finding(mon
 
 def test_the_evidence_shows_the_null_it_was_judged_against(monkeypatch):
     _, node = _concentration(monkeypatch, sample_from({"/a": (50, 130.0), "/b": (150, 80.0)}))
-    for fragment in ("has median", "Shuffling the labels", "p="):
+    for fragment in ("has median", "Redrawing each group", "p="):
         assert fragment in node.evidence
 
 
@@ -186,6 +188,35 @@ def test_a_truncated_sample_says_so_rather_than_implying_a_whole_window(monkeypa
     _, node = _concentration(monkeypatch, sample_from({"/a": (50, 600.0), "/b": (150, 80.0)}),
                              removal_p99=550.0, truncated=True)
     assert "not on the window" in node.evidence
+
+
+def test_a_subgroup_that_was_always_slower_is_not_confirmed_as_a_concentration(monkeypatch):
+    # The same window read twice: once with the baseline that says `/a` has
+    # always run at 600, once without it. The gap is identical in both. Only the
+    # second one is entitled to call it a concentration, and before the baseline
+    # was read the probe called it one every time.
+    focus = sample_from({"/a": (50, 900.0), "/b": (150, 380.0)}, seed=11)
+    normal = sample_from({"/a": (400, 600.0), "/b": (1200, 80.0)}, seed=12)
+
+    value, node = _concentration(monkeypatch, focus, removal_p99=550.0, baseline=normal)
+    assert value is None
+    assert node.state is not NodeState.CONFIRMED
+    assert node.magnitude_accounted is None
+    assert "from its own level outside this window" in node.evidence
+
+    blind, blind_node = _concentration(monkeypatch, focus, removal_p99=550.0)
+    assert blind == "/a" and blind_node.state is NodeState.CONFIRMED
+
+
+def test_a_dimension_whose_values_have_no_history_says_so(monkeypatch):
+    # Nothing in the baseline to measure either value against, so there is no
+    # normal to subtract and nothing that can be called a change. Declining is
+    # the answer; a gap reported as a change would be the whole defect back.
+    value, node = _concentration(monkeypatch, sample_from({"/a": (50, 600.0), "/b": (150, 80.0)}),
+                                 baseline=sample_from({"/a": (4, 600.0), "/b": (4, 80.0)}))
+    assert value is None
+    assert node.state is NodeState.INCONCLUSIVE
+    assert "what it normally runs at" in node.evidence
 
 
 # --------------------------------------------------------------------------

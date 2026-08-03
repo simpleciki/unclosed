@@ -34,9 +34,11 @@ averaged into one number.
 It reports a detection floor, an estimator error the two-estimator probe does
 not bound, and two defects it found in this skill. The first was a concentration
 confirmed on a negative control in 3 runs of 5, which the documentation had
-called impossible; that one is fixed, and the harness measures the fix. The
-second is a limit of the fix -- a permanently slower subgroup is confirmed as a
-concentration in 5 runs of 5 -- and it is open.
+called impossible. The second was in the fix for the first: a subgroup that is
+permanently slower was confirmed as a concentration in 5 runs of 5, on a rise
+that was spread evenly across every group. Both are fixed and the harness
+measures both fixes -- along with what the second one cost, which is detection
+power at the bottom of the sweep, given up to buy back the false confirmations.
 
 Any of those would have been cheaper to leave out. A skill that publishes a miss
 rate and omits the miss its own harness found is not publishing a miss rate.

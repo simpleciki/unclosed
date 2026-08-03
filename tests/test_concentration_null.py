@@ -2,9 +2,11 @@
 
 This module replaced a constant that the evaluation caught failing in both
 directions, so the properties that make it a null rather than a differently
-shaped constant are pinned here -- particularly the two that are easy to get
-wrong and invisible when wrong: that it is a null of the *maximum*, and that it
-scales with the data rather than with a chosen unit.
+shaped constant are pinned here -- particularly the ones that are easy to get
+wrong and invisible when wrong: that it is a null of the *maximum*, that it
+scales with the data rather than with a chosen unit, that it keeps each group's
+own spread instead of an average of everyone's, and that what it judges is the
+*change* in a gap and not the gap.
 """
 
 import random
@@ -26,6 +28,12 @@ def labelled(groups):
         values.extend(vals)
         labels.extend([label] * len(vals))
     return values, labels
+
+
+def window(spec, n, seed):
+    """One window: {label: median} -> (values, labels), n documents per label."""
+    return labelled({label: uniform(n, median, seed=seed + i)
+                     for i, (label, median) in enumerate(sorted(spec.items()))})
 
 
 def test_a_planted_concentration_stands_out():
@@ -141,5 +149,130 @@ def test_the_description_names_the_numbers_it_decided_on():
         "/b": uniform(150, 80, seed=2),
     })
     text = cn.assess(values, labels, trials=100).describe()
-    for fragment in ("has median", "Shuffling the labels", "p="):
+    for fragment in ("has median", "Redrawing each group", "p="):
         assert fragment in text
+
+
+# --------------------------------------------------------------------------
+# Each group against its own normal
+# --------------------------------------------------------------------------
+
+#: One group permanently slower, in the baseline and in the focus window alike.
+PERMANENTLY_SLOW = {"/slow": 420.0, "/a": 70.0, "/b": 70.0, "/c": 70.0}
+
+#: The same window after everything rises by the same amount. The gap between
+#: subgroups is unchanged, so it explains none of the rise.
+UNIFORM_RISE = {label: median + 300.0 for label, median in PERMANENTLY_SLOW.items()}
+
+
+def test_a_subgroup_that_was_always_slower_is_not_a_new_concentration():
+    # The failure the baseline reference exists for, and the one the evaluation
+    # measured: without it the probe confirmed `/slow` in 5 runs of 5 on a rise
+    # that was spread evenly across every group. "This subgroup is slow" is true
+    # every day and explains nothing; only "this subgroup got slower than the
+    # rest did" is a concentration.
+    for seed in (1, 17, 33, 49, 65):
+        result = cn.assess(*window(UNIFORM_RISE, 50, seed),
+                           *window(PERMANENTLY_SLOW, 400, seed + 1000), trials=200)
+        assert not result.stands_out, f"confirmed a standing gap as a change at seed {seed}"
+
+
+def test_without_the_baseline_the_same_window_is_confirmed():
+    # The other half of the test above: the data are unchanged and only the
+    # baseline is withheld, so whatever difference appears is the baseline doing
+    # the work rather than some other property of these numbers.
+    values, labels = window(UNIFORM_RISE, 50, 1)
+    bare = cn.assess(values, labels, trials=200)
+    assert bare.stands_out and bare.group == "/slow"
+    assert bare.baseline_referenced is False
+
+
+def test_a_real_change_on_top_of_a_standing_gap_still_stands_out():
+    # Subtracting the normal must not subtract the incident with it. `/slow` is
+    # permanently slower AND is the only group that moved.
+    focus = {**PERMANENTLY_SLOW, "/slow": 420.0 + 600.0}
+    result = cn.assess(*window(focus, 50, 3),
+                       *window(PERMANENTLY_SLOW, 400, 3 + 1000), trials=200)
+    assert result.stands_out and result.group == "/slow"
+
+
+def test_the_result_says_which_question_it_answered():
+    # `excess` means "the change in the gap" with a baseline and "the gap"
+    # without one. A field that carries either without saying which is the
+    # two-rulers failure this project spends a whole gate on.
+    values, labels = window(UNIFORM_RISE, 50, 5)
+    referenced = cn.assess(values, labels, *window(PERMANENTLY_SLOW, 400, 1005), trials=100)
+    assert referenced.baseline_referenced
+    # The gap that was subtracted is reported, not taken on faith. Which group
+    # wins is whichever wobbled highest here -- nothing is concentrated -- so the
+    # check is that the number is present and belongs to that group.
+    assert referenced.normal_gap is not None
+    assert "from its own level outside this window" in referenced.describe()
+    assert f"{referenced.normal_gap:+.2f}" in referenced.describe()
+
+    bare = cn.assess(values, labels, trials=100)
+    assert bare.baseline_referenced is False and bare.normal_gap is None
+    assert "no baseline read" in bare.describe()
+
+
+def test_a_group_with_too_little_history_is_dropped_and_named():
+    # An offset estimated from a handful of documents adds more noise than it
+    # removes, and the noise lands on the confirming side. Declining is the
+    # under-claiming direction, which is the one this project chooses.
+    focus_values, focus_labels = window({"/a": 80.0, "/b": 80.0, "/new": 80.0}, 50, 7)
+    base_values, base_labels = labelled({
+        "/a": uniform(400, 80, seed=71),
+        "/b": uniform(400, 80, seed=72),
+        "/new": uniform(4, 80, seed=73),
+    })
+    result = cn.assess(focus_values, focus_labels, base_values, base_labels, trials=100)
+    assert any(entry.startswith("/new") for entry in result.without_normal)
+    assert "for want of a baseline" in result.describe()
+
+
+def _shuffled_threshold(values, labels, eligible, trials=200):
+    """What the null would be if the labels were shuffled over the pooled values.
+
+    The version this module used first, kept here as the thing being measured
+    against rather than as a description of it -- a test that restates the code
+    in a second dialect agrees with the code's bugs.
+    """
+    rng = random.Random(cn.SEED)
+    shuffled = list(labels)
+    null = []
+    for _ in range(trials):
+        rng.shuffle(shuffled)
+        null.append(cn._excesses(values, shuffled, eligible)[1])
+    null.sort()
+    return null[min(len(null) - 1, int(round((1 - cn.ALPHA) * len(null))))]
+
+
+def test_the_null_keeps_each_group_its_own_spread():
+    # A slow subgroup varies more in milliseconds for the same reason it is
+    # slow. Shuffling the labels pools every group's spread into one, so the
+    # widest group gets judged against the average variation rather than its
+    # own -- and then it looks like it moved when only it could have moved that
+    # far by accident. Redrawing each group from its own values does not, and on
+    # a window holding one much wider group the difference has to be visible in
+    # the threshold itself, not merely in how often the two disagree.
+    # Every group already sits at the same level -- what the baseline subtraction
+    # produces -- and one of them varies ten times as much as the rest.
+    wide = uniform(50, 900, seed=2)
+    values, labels = labelled({
+        "/wide": [v - 900.0 + 90.0 for v in wide],
+        "/a": uniform(50, 90, seed=3),
+        "/b": uniform(50, 90, seed=4),
+        "/c": uniform(50, 90, seed=5),
+    })
+    eligible = ["/wide", "/a", "/b", "/c"]
+    result = cn.assess(values, labels, trials=200)
+    assert result.null_threshold > _shuffled_threshold(values, labels, eligible) * 1.5
+
+    # And where every group has the same spread there is nothing to pool wrongly,
+    # so the two nulls have to agree. Otherwise the difference above is this
+    # module being differently shaped rather than differently right.
+    even_values, even_labels = labelled({f"/{c}": uniform(50, 90, seed=i)
+                                         for i, c in enumerate("abcd")})
+    even = cn.assess(even_values, even_labels, trials=200)
+    pooled = _shuffled_threshold(even_values, even_labels, [f"/{c}" for c in "abcd"])
+    assert even.null_threshold == pytest.approx(pooled, rel=0.35)

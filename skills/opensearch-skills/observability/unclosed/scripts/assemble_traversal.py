@@ -42,17 +42,22 @@ above zero, so dividing a few milliseconds of subgroup wobble by it produced a
 large share and a CONFIRMED verdict.
 
 One cause for both: there was no null. `concentration_null.py` builds one by
-shuffling the group labels over the same documents, several hundred times, and
-asking where the observed excess falls among the results. See that module for
+redrawing the window several hundred times with every group held at one level,
+and asking where the observed value falls among the results. See that module for
 why the null has to be a null of the maximum, and why an empirical p of zero is
 never printed.
 
+And the thing being asked about is a *change*, not a gap. A subgroup that is
+permanently slower carries a large gap in every window, including the quiet ones,
+so each latency has its own group's level from outside the focus window
+subtracted before any comparison happens. Without that step the probe reports
+*this subgroup is slow* while appearing to report *this subgroup got slow*: on
+the corpus fixture built to catch exactly that, the earlier version confirmed a
+concentration in 5 runs of 5 where nothing was concentrated at all.
+
 The rate of confirming something that is not there is now a declared 5% rather
 than a consequence of an arbitrary constant, and examples/miss-rate.txt reports
-what that choice actually costs -- along with the assumption it rests on, which
-is that under the null any request could equally have carried any label. A
-subgroup that is *permanently* slower violates that, and the corpus contains a
-case built to find out how badly.
+what that choice actually costs -- including the power given up to buy it.
 
 Standard library only.
 """
@@ -80,12 +85,21 @@ DEFAULT_ENDPOINT = "http://127.0.0.1:9250"
 #: fraction of the p99 movement so it scales with the incident.
 MEDIAN_SHIFT_SHARE = 0.10
 
-#: Documents read from the focus window for the permutation test. Larger than
-#: any window this project's fixtures produce, so the null is normally estimated
-#: on the whole window. When a real window exceeds it the test is still valid --
+#: Documents read from the focus window for the null. Larger than any window
+#: this project's fixtures produce, so the null is normally estimated on the
+#: whole window. When a real window exceeds it the test is still valid --
 #: observed statistic and null come from the same sample -- but it is a test on
 #: that sample, and the report says so rather than implying otherwise.
 SAMPLE_CAP = 5000
+
+#: And from the baseline, to establish what each group's level normally is. The
+#: baseline is every bucket except the focus one, so exceeding this cap is the
+#: ordinary case rather than the exception -- which is why the draw below is
+#: random rather than whatever the index hands back first.
+BASELINE_SAMPLE_CAP = 5000
+
+#: Fixed, so the draw is a measurement and not a different one each run.
+SAMPLE_SEED = 20260802
 
 
 def _post(endpoint, path, body):
@@ -118,15 +132,23 @@ def _terms(endpoint, index, query, field, size=20):
     return _post(endpoint, f"/{index}/_search", body)["aggregations"]["t"]["buckets"]
 
 
-def _sample(endpoint, index, query, metric, dimensions, cap=SAMPLE_CAP):
-    """Raw values from the focus window, once, for every dimension at the same time.
+def _sample(endpoint, index, query, metric, dimensions, cap=SAMPLE_CAP, seed=SAMPLE_SEED):
+    """Raw values from one window, once, for every dimension at the same time.
 
-    The permutation test needs the documents themselves -- an aggregation
-    returns summaries, and a summary cannot be shuffled. Fetching once for all
-    dimensions keeps this to a single extra request per run rather than one per
-    hypothesis.
+    The null needs the documents themselves -- an aggregation returns summaries,
+    and a summary cannot be resampled. Fetching once for all dimensions keeps
+    this to a single extra request per window rather than one per hypothesis.
+
+    Scored at random so that a window larger than the cap is read as a draw from
+    the whole of it. A plain read returns whichever documents the index hands
+    back first, which on a time-ordered index is its oldest part -- and a
+    "normal" measured from the oldest stretch of a baseline is a normal for a
+    different span of time than the one being explained. The seed is fixed, so
+    two runs over an unchanged index read the same documents.
     """
-    body = {"size": cap, "query": query, "_source": [metric] + list(dimensions)}
+    body = {"size": cap, "_source": [metric] + list(dimensions),
+            "query": {"function_score": {"query": query,
+                                         "random_score": {"seed": seed, "field": "_seq_no"}}}}
     res = _post(endpoint, f"/{index}/_search", body)
     total = res["hits"]["total"]
     total = total["value"] if isinstance(total, dict) else total
@@ -165,10 +187,11 @@ OUT_OF_INDEX = (
 
 
 def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_p99,
-                        sample, truncated):
-    """Is one value of this dimension slower than the rest of the same window?
+                        sample, truncated, baseline_sample=(), baseline_truncated=False):
+    """Has one value of this dimension moved further than the rest of the window?
 
-    Asked on the **median**, and against a **null**. Both choices are the probe.
+    Asked on the **median**, against each value's **own normal**, and against a
+    **null**. All three choices are the probe.
 
     The median, because the two obvious alternatives report sample size while
     appearing to report concentration:
@@ -183,10 +206,16 @@ def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_
 
     Both are Gate 1's population_shift confound rebuilt one gate up.
 
-    The null, because a median gap between subgroups is never zero and a
-    constant cannot say when one is large. Shuffling the labels over the same
-    documents produces the distribution of that gap when the labels mean
-    nothing, at these sizes and on this data's own spread -- see
+    Its own normal, because some values are permanently slower than others and
+    always have been. Subtracting each group's level from outside the window
+    turns "this endpoint is slow" -- true every day, and an explanation of
+    nothing -- into "this endpoint got slower than the rest did", which is the
+    only version a rise can be concentrated in.
+
+    The null, because a median change between subgroups is never zero and a
+    constant cannot say when one is large. Redrawing the window with every group
+    held at one level produces the distribution of that change when nothing is
+    concentrated, at these sizes and on each group's own spread -- see
     `concentration_null.py`. A constant expressed as a share of anything is
     blind to scale, and the evaluation caught the earlier one failing in both
     directions because of it.
@@ -198,8 +227,9 @@ def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_
     back out of the node's text later: a reader that has to recover structure
     from a sentence is one rewording away from silently finding nothing.
     """
-    probe = (f"compared each `{dim}` value's median against the rest of the window, and against "
-             f"the gap that shuffling the labels produces at the same subgroup sizes")
+    probe = (f"measured each `{dim}` value against its own level outside the window, compared the "
+             f"movement with the rest's, and judged it against the change that redrawing at one "
+             f"level produces at the same subgroup sizes")
 
     rows = [r for r in sample if dim in r]
     labels = {r[dim] for r in rows}
@@ -211,14 +241,18 @@ def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_
                       "cannot separate a concentrated rise from a uniform one"),
         )
 
+    baseline_rows = [r for r in baseline_sample if dim in r]
     result = assess([float(r[metric]) for r in rows], [r[dim] for r in rows],
-                    sample_truncated=truncated)
+                    [float(r[metric]) for r in baseline_rows], [r[dim] for r in baseline_rows],
+                    sample_truncated=truncated, baseline_truncated=baseline_truncated)
     if result.excess is None:
+        missing = result.too_small + result.without_normal
         return None, Node(
             statement, NodeState.INCONCLUSIVE, probe=probe,
-            evidence=(f"no value has {NULL_MIN_N} documents on both sides of the comparison "
-                      f"({'; '.join(result.too_small)}); at that size the comparison would be "
-                      "reporting subgroup size, not concentration"),
+            evidence=(f"no value could be compared ({'; '.join(missing)}); one needs "
+                      f"{NULL_MIN_N} documents on both sides of the comparison, and enough of "
+                      "its own outside this window to say what it normally runs at -- short of "
+                      "either, the answer reports sample size and not concentration"),
         )
 
     ev = result.describe()
@@ -237,10 +271,10 @@ def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_
                            magnitude_accounted=round(drop, 2))
     if result.is_ordinary:
         return None, Node(statement, NodeState.RULED_OUT, probe=probe,
-                          evidence=ev + " -- at or below what shuffled labels produce; "
-                                        "the rise is spread")
+                          evidence=ev + " -- at or below what a window with nothing concentrated "
+                                        "in it produces; the rise is spread")
     return None, Node(statement, NodeState.INCONCLUSIVE, probe=probe,
-                      evidence=ev + " -- elevated, but not beyond what the labels produce by "
+                      evidence=ev + " -- elevated, but not beyond what this window produces by "
                                     "chance; not enough to say the effect lives here")
 
 
@@ -315,15 +349,20 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
 
     shape, _ = _shape_node(endpoint, index, metric, focus_q, baseline_q, observed_effect)
 
-    # One fetch of the raw window, shared by every dimension. The permutation
-    # test shuffles documents, and a summary cannot be shuffled.
-    sample, truncated = _sample(endpoint, index, focus_q, metric,
-                                [dim for dim, _ in CONCENTRATION_DIMENSIONS])
+    # One fetch of each raw window, shared by every dimension. The null resamples
+    # documents, and a summary cannot be resampled. The baseline is read the same
+    # way and through the same query the shape node used, so "normal" means one
+    # thing here rather than two things that happen to share a name.
+    dims = [dim for dim, _ in CONCENTRATION_DIMENSIONS]
+    sample, truncated = _sample(endpoint, index, focus_q, metric, dims)
+    baseline_sample, baseline_truncated = _sample(endpoint, index, baseline_q, metric, dims,
+                                                  cap=BASELINE_SAMPLE_CAP)
 
     children, candidates = [], []
     for dim, statement in CONCENTRATION_DIMENSIONS:
         value, node = _concentration_node(endpoint, index, dim, statement, metric,
-                                          focus_q, obs.focus_value, sample, truncated)
+                                          focus_q, obs.focus_value, sample, truncated,
+                                          baseline_sample, baseline_truncated)
         children.append(node)
         candidates.append((dim, value))
 

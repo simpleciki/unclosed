@@ -44,4 +44,11 @@ mutation at one chosen test lets the author decide what counts as caught.
 [RED - guard is real] Gate 3 closes(): ignore everything Gate 2 left open
     caught by: test_a_perfect_magnitude_does_not_close_a_tree_gate2_left_open, test_a_perfect_magnitude_does_not_close_over_an_unverified_premise
 
-Restored to original: 74 passed in 0.44s
+[RED - guard is real] Gate 2 concentration: stop measuring each group against its own normal (keep the bare gap)
+    caught by: test_a_subgroup_that_was_always_slower_is_not_a_new_concentration, test_a_subgroup_that_was_always_slower_is_not_confirmed_as_a_concentration
+[RED - guard is real] Gate 2 concentration: build the null by shuffling labels instead of redrawing each group
+    caught by: test_the_null_keeps_each_group_its_own_spread, test_a_subgroup_that_was_always_slower_is_not_confirmed_as_a_concentration
+[RED - guard is real] Gate 2 concentration: accept a baseline too thin to establish a normal, and answer the weaker question
+    caught by: test_a_dimension_whose_values_have_no_history_says_so
+
+Restored to original: 149 passed
