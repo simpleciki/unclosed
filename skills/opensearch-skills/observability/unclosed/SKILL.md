@@ -408,43 +408,53 @@ group labels; that null also confirmed a concentration that did not exist, and
 the power was given up to stop it. A miss costs a finding; a false confirmation
 costs the reason to believe the findings that remain.
 
-**A chain almost never closes, and the reason is arithmetic rather than
-missing data.** Closure needs every branch DISPOSED, and `INCONCLUSIVE` is not
-disposed. A dimension is ruled out when its excess sits *at or below the middle
-of its own null* — so for a dimension with nothing concentrated in it, whose
-excess is a draw from that very null, being ruled out is about a coin flip. With
-three other declared dimensions the ceiling is **0.5³ ≈ 12.5%** on data with no
-ambiguity in it at all, and measured on a corpus built so every branch has an
-answer it came out lower: 12 of 33 innocent dimensions were ruled out, 0 of 11
-runs closed. See [`examples/closure-ceiling.txt`](../../../../examples/closure-ceiling.txt).
+**A branch is judged against the effect it would have to explain, and not only
+against chance.** The null answers *is this larger than noise*. Closure asks *is
+any rival account still standing*, which is a question about size — and for a
+long time the two were never connected. A subgroup gap of 13ms sat in the upper
+half of its own null while the rise being explained was 1900ms, so it read as
+`INCONCLUSIVE` and kept the chain open. Against chance it is elevated; against
+the thing it would have to account for it is **0.7%** of it, and no confidence
+about a 0.7% wobble makes it a rival.
 
-This is the honest-completeness principle billing itself. Every hypothesis added
-to the declared catalog is another coin that has to land the same way, so naming
-more of them — the thing this skill argues for — makes closure geometrically less
-likely. Whether that is right depends on what `RULED_OUT` should mean: *at the
-middle of the null*, as now, or *not distinguishable from it* (p > alpha), which
-keeps all three reporting bands and changes only which of them blocks a chain.
+The cost of not asking was total: **0 of 11 runs closed**, because three innocent
+dimensions each had to land in the lower half of their own null by luck — 0.5³ ≈
+12.5% at best, and 12 of 33 measured. Closure was a constant, and a gate that
+never opens is a wall.
 
-The second was measured rather than argued, on the same pre-registered corpus
-with the definition swapped and reverted: **4 of 8 runs closed** (3 of 5 at a
-planted median of 900ms, 1 of 3 at 160ms), against 0 of 8 in the control. The
-algebra had predicted about 86% and was wrong, for a reason worth keeping: it
-assumed the other dimensions were innocent, and a real rise leaks into them until
-some genuinely confirm. Two further blockers surfaced in the four that did not
-close, and both are structural rather than statistical:
+`IMMATERIAL` is the state for a branch that was **measured** and is too small to
+be the answer. The bar is Gate 3's own `RESIDUAL_TOLERANCE`, widened the same way
+when the two estimators disagree — not a new constant, and deliberately the same
+one used to accept an explanation, so nothing can be too small to be an answer
+and large enough to block one. With it, on the same pre-registered runs:
+**7 of 11 closed, 0 of 11 controls.** See
+[`examples/closure-ceiling.txt`](../../../../examples/closure-ceiling.txt).
 
-- a dimension that **confirms and is then downgraded** by the single-carrier rule
-  lands in `INCONCLUSIVE`, which is in the open set. The rule exists to stop one
-  effect being counted twice, and parking the branch there conflates *we chose
-  not to credit this* with *this is still standing*
-- a **confirmed external branch carries no magnitude**, so Gate 3 reports
-  `NOT_QUANTIFIED`. An event index can say a deploy landed; it cannot say how
-  many milliseconds the deploy explains. As written, a run where a deploy really
-  did land in the window can never close — finding the most plausible cause is
-  what stops it
+It is not a softer `INCONCLUSIVE` and not a quiet `RULED_OUT`:
 
-Neither the definition swap nor a fix for those two is implemented. Choosing is a
-decision about what this tool is for, not a defect to repair quietly.
+| | says |
+|---|---|
+| `INCONCLUSIVE` | we could not establish whether the effect lives here |
+| `IMMATERIAL` | we measured how big this is, and it is too small to be where it lives |
+| `RULED_OUT` | it sits at the middle of its null; this is what noise does |
+
+**A branch nobody could measure never becomes `IMMATERIAL`.** *Too small to
+matter* is a finding, not something to say when you did not look — a dimension
+with one value present, or too few documents to compare, stays `INCONCLUSIVE` and
+still blocks. That rule is the one that keeps this state from being the escape
+hatch the rest of the design exists to refuse, and it is where the mutation
+verification aims.
+
+The alternative considered and **not** taken was redefining `RULED_OUT` as *not
+distinguishable from the null* (p > alpha). Measured the same way it closed 4 of
+8 — worse — and it contradicts this project's own rule that failing to knock
+something down is not the same as clearing it. The four runs that still do not
+close now fail on **magnitude**, which is Gate 3 working: one is genuinely
+under-accounted at 71% of its effect, and the others report `NOT_QUANTIFIED`
+because a confirmed branch carried no number. An event index can say a deploy
+landed and cannot say how many milliseconds it explains, so a run where a deploy
+really did land in the window still cannot close. That is not obviously wrong — a
+strong lead you cannot size *is* an open chain — and it is left as it stands.
 
 **A rise that is multiplicative rather than additive will still read as
 concentrated.** Each group's normal is subtracted in milliseconds, because the

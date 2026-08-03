@@ -73,7 +73,7 @@ from typing import NamedTuple, Optional
 
 sys.path.insert(0, __file__.rsplit("assemble_traversal.py", 1)[0])
 from audit_window import build_observation  # noqa: E402
-from closure_audit import audit_closure, closes  # noqa: E402
+from closure_audit import RESIDUAL_TOLERANCE, audit_closure, closes  # noqa: E402
 from concentration_null import MIN_SUBPOP_N as NULL_MIN_N  # noqa: E402
 from concentration_null import assess  # noqa: E402
 from premise_audit import Verdict, audit, estimator_divergence  # noqa: E402
@@ -311,8 +311,38 @@ def _external_node(endpoint, key, kind, statement, needs, external, time_field,
                         focus_start, focus_end, scan_start, scan_end, bucket_minutes)
 
 
+def _immaterial(excess, observed_effect, tolerance):
+    """Could a branch this size be the account of an effect that size?
+
+    Asked because the null answers a different question. A subgroup's excess is
+    judged against what redrawing at one level produces -- whether it is *larger
+    than chance* -- and never against the rise it would have to explain. Those
+    come apart badly: on this project's own runs a 13ms subgroup gap sat in the
+    upper half of its null while the effect being explained was 1900ms. Judged
+    against chance it is elevated. Judged against the thing it would have to
+    account for it is 0.7% of it, and no confidence about a 0.7% wobble makes it
+    a rival account.
+
+    Blocking a chain on that is what made closure unreachable: three innocent
+    dimensions each had to land in the lower half of their own null by luck, and
+    0 of 11 runs closed. See examples/closure-ceiling.txt.
+
+    The bar is Gate 3's, not a new one. `RESIDUAL_TOLERANCE` is already the share
+    of an effect this project declines to claim precision below; a branch under
+    it cannot be sized against the effect either way, so it cannot be the effect.
+
+    Returns None when the question cannot be asked -- an unmeasured branch is
+    never immaterial, because "too small to matter" is a measurement and a
+    branch nobody could measure has not produced one.
+    """
+    if excess is None or not observed_effect:
+        return None
+    return excess < tolerance * abs(observed_effect)
+
+
 def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_p99,
-                        sample, truncated, baseline_sample=(), baseline_truncated=False):
+                        sample, truncated, baseline_sample=(), baseline_truncated=False,
+                        observed_effect=None, tolerance=RESIDUAL_TOLERANCE):
     """Has one value of this dimension moved further than the rest of the window?
 
     Asked on the **median**, against each value's **own normal**, and against a
@@ -398,9 +428,18 @@ def _concentration_node(endpoint, index, dim, statement, metric, focus_q, focus_
         return None, Node(statement, NodeState.RULED_OUT, probe=probe,
                           evidence=ev + " -- at or below what a window with nothing concentrated "
                                         "in it produces; the rise is spread")
+    elevated = " -- elevated, but not beyond what this window produces by chance"
+    if _immaterial(result.excess, observed_effect, tolerance):
+        share = result.excess / abs(observed_effect)
+        return None, Node(
+            statement, NodeState.IMMATERIAL, probe=probe,
+            evidence=(ev + elevated + f", and at {result.excess:.2f} it is {share:.1%} of the "
+                      f"{observed_effect:+.2f} being explained -- under the {tolerance:.0%} this "
+                      "project will size an explanation to, so it is not a rival account of it"),
+        )
     return None, Node(statement, NodeState.INCONCLUSIVE, probe=probe,
-                      evidence=ev + " -- elevated, but not beyond what this window produces by "
-                                    "chance; not enough to say the effect lives here")
+                      evidence=ev + elevated + "; not enough to say the effect lives here, and "
+                                               "large enough that it could")
 
 
 def _shape_node(endpoint, index, metric, focus_q, baseline_q, observed_effect):
@@ -461,6 +500,14 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
 
     observed_effect = obs.focus_value - obs.baseline_value
 
+    # The same floor Gate 3 sizes explanations against, widened the same way when
+    # the two estimators disagree about how big the effect even is. Deciding
+    # materiality against a tighter bar than the one used to accept an
+    # explanation would let a branch be too small to be an answer and large
+    # enough to block one.
+    uncertainty = estimator_divergence(obs)
+    tolerance = max(RESIDUAL_TOLERANCE, uncertainty or 0.0)
+
     # The refusal is structural, not cosmetic. Below an artifact there is no
     # hypothesis space worth walking -- and a traversal that gets built and then
     # merely goes unprinted is one refactor away from being printed. `traversal`
@@ -487,7 +534,8 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
     for dim, statement in CONCENTRATION_DIMENSIONS:
         value, node = _concentration_node(endpoint, index, dim, statement, metric,
                                           focus_q, obs.focus_value, sample, truncated,
-                                          baseline_sample, baseline_truncated)
+                                          baseline_sample, baseline_truncated,
+                                          observed_effect, tolerance)
         children.append(node)
         candidates.append((dim, value))
 
@@ -499,12 +547,27 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
     carriers = [n for n in children if n.magnitude_accounted is not None]
     if len(carriers) > 1:
         carriers.sort(key=lambda n: -n.magnitude_accounted)
+        note = (" -- another dimension isolates the window at least as strongly, and these may be "
+                "the same documents seen from two angles; not independently established")
         for weaker in carriers[1:]:
+            # Withdrawing the number is the whole of the rule: two dimensions
+            # that may be the same documents must not be summed. Whether the
+            # branch still stands as a rival is a separate question with a
+            # separate answer -- one this used to skip by parking every demoted
+            # branch in the open set, where "we declined to credit it" became
+            # indistinguishable from "it is still standing". A demotion that can
+            # never be lifted keeps a chain open on a finding nobody disputes.
+            state = NodeState.INCONCLUSIVE
+            extra = ""
+            if _immaterial(weaker.magnitude_accounted, observed_effect, tolerance):
+                state = NodeState.IMMATERIAL
+                share = weaker.magnitude_accounted / abs(observed_effect)
+                extra = (f". At {weaker.magnitude_accounted:+.2f} it is {share:.1%} of the "
+                         f"{observed_effect:+.2f} being explained, under the {tolerance:.0%} floor, "
+                         "so it is not a rival account of it either way")
             children[children.index(weaker)] = Node(
-                weaker.hypothesis, NodeState.INCONCLUSIVE, probe=weaker.probe,
-                evidence=(weaker.evidence + " -- another dimension isolates the window at least as "
-                          "strongly, and these may be the same documents seen from two angles; "
-                          "not independently established"),
+                weaker.hypothesis, state, probe=weaker.probe,
+                evidence=weaker.evidence + note + extra,
             )
 
     # Read after the single-carrier rule, never before it: a dimension that was

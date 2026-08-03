@@ -1,151 +1,168 @@
 ==============================================================================
-unclosed -- the closure ceiling
+unclosed -- the closure ceiling, and what was under it
 ==============================================================================
 
-The question this answers: can an assembled traversal close at all?
+The question: can an assembled traversal close at all?
 
-Until now the answer was unknown rather than no. Three branches -- a deploy
-landed, a dependency slowed, the host lost resources -- were appended
-NOT_VISITED unconditionally, and any unwalked branch keeps a chain open. So the
-closure verdict was a constant, and a refusal that can never be lifted reports
-nothing. Gate 1's own rule turned on the gate that owns it.
+For a long time the answer was unknown rather than no, which is worse. Three
+branches -- a deploy landed, a dependency slowed, the host lost resources -- were
+appended NOT_VISITED unconditionally, and any unwalked branch keeps a chain open.
+So the closure verdict was a constant. A refusal that can never be lifted is not
+a strict finding; it is an absent one, and a gate that never opens is a wall.
 
-Those three are now walked when the caller points at a source for them, and the
-runs below confirm that half works: with companions pointed at, unwalked
-branches go to zero; in the control, the same three are still unwalked.
+Everything below is one pre-registered corpus -- shape, companions, seeds and the
+control fixed before the first run and not adjusted after seeing any of it.
 
-The chain still did not close. 0 of 11 runs, across three effect sizes. What
-stops it is not missing data, and it is not bad luck.
+    primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
+                    regions assigned independently of endpoint; 10% of requests
+                    fail. The focus bucket raises /api/checkout only.
+    companions      change events (deploys, none inside the focus bucket), a
+                    dependency latency series, a node CPU series -- both series
+                    flat, so those branches must come back RULED_OUT and not
+                    CONFIRMED.
+    report          external, filed at the end of the window.
+    control         the same primary index with no companions pointed at. It
+                    must NOT close. If both close the companions changed
+                    nothing and the run is void.
 
-WHAT ACTUALLY STOPS IT
-----------------------
+Volume is what makes status comparable here, not the error rate: 10% of 500 is
+above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
+different system; raising the failure rate to clear a floor would be tuning the
+corpus against its own grader.
 
-A concentration verdict has three bands:
+STAGE 1 -- the branches nothing could answer
+--------------------------------------------
+
+Pointed at a source, those three are now walked; left alone they stay unwalked.
+That half works, and the control is the proof: with companions the tree has zero
+unwalked branches, without them it has three.
+
+The chain still did not close. 0 of 11 runs, across three planted effect sizes.
+So the story "it cannot close because the data is not there" was wrong.
+
+STAGE 2 -- what was actually stopping it
+-----------------------------------------
+
+A concentration verdict had three bands:
 
     CONFIRMED     p <= 0.05                 stands out from the null
     RULED_OUT     excess <= null_median     at or below the middle of it
     INCONCLUSIVE  everything between        elevated, not established
 
-Closure requires every branch to be DISPOSED, and INCONCLUSIVE is not disposed.
-So a chain closes only if every *other* declared dimension lands in the lower
-half of its own null.
-
-For a dimension with nothing concentrated in it, the observed excess is a draw
-from that null. Landing at or below its median is therefore roughly a coin
-flip -- by definition, not by accident. With three other dimensions:
+Closure needs every branch DISPOSED, and INCONCLUSIVE is not. So a chain closed
+only if every *other* declared dimension landed in the lower half of its own
+null -- and for a dimension with nothing concentrated in it, whose excess is a
+draw from that very null, that is a coin flip by definition.
 
     P(close) ~ 0.5^3 = 12.5%   on data with no ambiguity in it at all
 
-Measured here it is worse, because a real concentrated rise leaks into the other
-dimensions: a subgroup that happens to hold a few more of the raised requests
-carries a higher median. Across 33 innocent-dimension outcomes in the runs
-below, 12 came back RULED_OUT and 21 came back INCONCLUSIVE -- 36%, not 50%.
+Measured it was worse, because a real rise leaks into the other dimensions: a
+subgroup holding a few more of the raised requests carries a higher median.
+Across 33 innocent-dimension outcomes, 12 came back RULED_OUT and 21 came back
+INCONCLUSIVE -- 36%, not 50%.
 
     P(close) ~ 0.36^3 = 4.7%   -> 0.5 closures expected in 11 runs; 0 observed
 
-The leak is visible directly in the sweep. Dropping the planted effect from a
-median of 900ms to 160ms moved `region` from INCONCLUSIVE in 3 of 5 runs to 0 of
-3. It did not move `service`, which was INCONCLUSIVE in 8 of 8 runs at every
-effect size -- so leakage is part of the story and not all of it. The rest is
-the coin flip.
+The leak is visible directly: dropping the planted effect from a median of 900ms
+to 160ms moved region from INCONCLUSIVE in 3 of 5 runs to 0 of 3, and did not
+move service, which was INCONCLUSIVE in 8 of 8 at every effect size. Leakage is
+part of it. The coin flip is the rest.
 
-THE PART THAT IS A DESIGN STATEMENT, NOT A BUG
-----------------------------------------------
+This is the honest-completeness principle billing itself. Every hypothesis added
+to the declared catalog is another coin that has to land the same way, so naming
+more of them -- what this skill exists to argue for -- made closure geometrically
+less likely.
 
-Naming a hypothesis this data cannot settle is the central claim of this skill:
-a tree that omits its unwalked branches looks complete, and looking complete is
-the failure being attacked. But every declared dimension is another coin that
-has to land the same way, so **each hypothesis added halves the chance of ever
-closing a chain.** Honest completeness and the closure criterion pull in
-opposite directions, and the current resolution is that nothing closes.
+STAGE 3 -- the fix considered and rejected
+-------------------------------------------
 
-That is not a defect in any one line of code. It is a choice about what
-RULED_OUT should mean: "at the middle of the null" (what it means now, so an
-innocent dimension clears half the time) or "not distinguishable from the null"
-(p > alpha). The second keeps all three reporting bands and changes only which
-of them blocks a chain.
-
-The second was then measured rather than argued -- the definition swapped
-locally, the same pre-registered runs repeated, the swap reverted, and nothing
-committed:
+The obvious move is to redefine RULED_OUT as "not distinguishable from the null"
+(p > alpha), so an innocent dimension clears 95% of the time instead of 50%.
+Measured, with the definition swapped locally and reverted:
 
     RULED_OUT = p > alpha      900ms, 5 seeds -> CLOSED 3/5   control 0/5
                                160ms, 3 seeds -> CLOSED 1/3   control 0/3
                                ---------------------------------------------
-                               4 of 8 closed, 0 of 8 controls
+                               4 of 8
 
-So the criteria are reachable. The algebra above had predicted about 86% and was
-wrong: it assumed the other dimensions were innocent, and a real rise leaks into
-them until some of them genuinely confirm.
+Rejected, for two reasons and the second is the real one. The algebra had said
+about 86% and it measured 50% -- reasoning where a measurement was available, in
+a project whose whole argument is that those differ. And it clears a branch
+*because it failed to knock it down*, which is the exact move Gate 1 refuses in
+as many words: failing to knock something down is not the same as clearing it.
+A tool that breaks its own rule to produce a satisfying output has produced
+nothing.
 
-The four that did not close name two further blockers, and neither is
-statistical:
+STAGE 4 -- judging a branch against the effect, not only against chance
+-----------------------------------------------------------------------
 
-  seed 4102   `service` CONFIRMED and was then downgraded to INCONCLUSIVE by the
-              single-carrier rule -- at most one dimension may carry magnitude,
-              and the others are recorded as still standing. INCONCLUSIVE is in
-              the open set, so a branch demoted for magnitude hygiene blocks the
-              chain exactly as a branch nobody could settle does. "We chose not
-              to credit this" and "this is still standing" are not the same
-              statement and share a state.
+The null answers *is this larger than noise*. Closure asks *is any rival account
+still standing*, which is a question about size. Nothing connected them.
 
-  seed 4103   magnitude NOT_QUANTIFIED at +1927.69 accounted of +1909.04
-              observed -- the sizes agree to 1%, and the verdict is not about
-              them. A confirmed *explanatory* branch carried no number, which
-              short-circuits the arithmetic. The likely one is a companion
-              branch: an event index can report that a deploy landed and cannot
-              report how many milliseconds it explains, so those nodes confirm
-              with no magnitude by construction. As written, a run where a
-              deploy really did land inside the window can never close -- finding
-              the most plausible cause is what prevents it.
+On these runs a subgroup gap of 13.5ms sat in the upper half of its own null
+while the effect being explained was 1900ms. Judged against chance: elevated.
+Judged against the thing it would have to account for: 0.7% of it. No confidence
+about a 0.7% wobble makes it a rival account of a 1900ms rise.
 
-              Stated as a candidate, not a finding: the other possibility is a
-              concentration node confirming while its removal left nothing to
-              measure against. The two were not separated.
+IMMATERIAL is the state for a branch that was measured and is too small to be the
+answer. The bar is Gate 3's own RESIDUAL_TOLERANCE, widened the same way when the
+estimators disagree -- not a new constant, and deliberately the same one used to
+accept an explanation, so nothing can be too small to be an answer and large
+enough to block one.
 
-None of the three is implemented as a change. Picking is a decision about what
-this tool is for, not a defect to repair.
+    with IMMATERIAL            900ms, 5 seeds -> CLOSED 4/5   control 0/5
+    (RULED_OUT unchanged)      300ms, 3 seeds -> CLOSED 2/3   control 0/3
+                               160ms, 3 seeds -> CLOSED 1/3   control 0/3
+                               ---------------------------------------------
+                               7 of 11 closed, 0 of 11 controls
+
+Better than the rejected fix, and it contradicts nothing: the branch is not
+cleared, the tree still reports it as elevated, and only the closure gate stops
+treating a 0.7% wobble as a live rival.
+
+The rule that keeps this from being an escape hatch: a branch nobody could
+measure never becomes IMMATERIAL. Too small to matter is a finding, not
+something to say when you did not look. A dimension with one value present, or
+with too few documents on both sides, stays INCONCLUSIVE and still blocks.
+
+WHAT STILL DOES NOT CLOSE
+--------------------------
+
+All four remaining failures are magnitude, not concentration -- which is Gate 3
+doing its job rather than a leftover of this one.
+
+  seed 4102 at 160ms   UNDER_ACCOUNTED: +81.58 of +114.75. The confirmed
+                       concentration covers 71% of the effect, outside the 20%
+                       this project will size an explanation to. That chain
+                       should not close.
+
+  seed 4103, all three NOT_QUANTIFIED, with the sizes agreeing to within 1%. A
+                       confirmed *explanatory* branch carried no number, which
+                       short-circuits the arithmetic. The likely one is a
+                       companion: an event index can report that a deploy landed
+                       and cannot report how many milliseconds it explains, so
+                       those nodes confirm with no magnitude by construction.
+                       So a run where a deploy really did land inside the window
+                       still cannot close.
+
+                       Left as it stands, because it is not obviously wrong: a
+                       strong lead you cannot size is an open chain, and that is
+                       what this tool is named after. Stated as a candidate and
+                       not a finding -- a concentration node confirming while its
+                       removal left nothing to measure would produce the same
+                       verdict, and the two were not separated.
 
 WHAT THIS DOES NOT SHOW
------------------------
+------------------------
 
 That real incidents should close. They mostly should not, and the shipping
-corpus says so for a different and better reason: on a request-log index the
-hypotheses that would explain a rise are usually not in the data. This measures
-only whether the criteria are reachable when the data *is* there.
-
-The runs below were pre-registered -- corpus shape, companion shape, seed count
-and the control were fixed before the first run and not adjusted afterwards.
+corpus says so for a better reason: on a request-log index the hypotheses that
+would explain a rise are usually not in the data at all. This measures only
+whether the criteria are reachable when the data is there.
 
 ==============================================================================
-RUN -- planted effect: median 900ms, 5 seeds
+RUN -- STAGE 1-2 -- unwalked branches removed, RULED_OUT unchanged -- 900ms, 5 seeds
 ==============================================================================
-before the first run, and not reshaped afterwards:
-
-  primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
-                  regions assigned independently of endpoint; 10% of requests
-                  fail. The focus bucket raises `/api/checkout` only.
-  companions      change events (deploys, none inside the focus bucket),
-                  a dependency latency series, a node CPU series -- both series
-                  flat, so the branches must come back RULED_OUT rather than
-                  CONFIRMED.
-  report          external, filed at the end of the window.
-  runs            5 independent seeds.
-  control         the same primary index with no companions pointed at. It must
-                  NOT close. If both close, the companions changed nothing and
-                  the experiment is void.
-
-What this does and does not test. It does not test whether real incidents
-usually close -- they do not, and the corpus that ships says so. It tests
-whether the closure criteria are *satisfiable end to end* by an assembled
-traversal, which until now was unknown: three branches were appended
-NOT_VISITED unconditionally, so the closure verdict was a constant.
-
-Volume is what makes `status` comparable here, not the error rate: 10% of 500
-is above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
-different system; raising the failure rate to clear a floor would be tuning the
-corpus against its own grader.
-
 ------------------------------------------------------------------------------
 seed 4101:  with companions -> not closed    control -> not closed
     still open: [not ruled out] the rise is confined to one region -- `us-east-1` (n=163) sits +30.32 from its own level outside this window and the rest sit +16.79 f
@@ -184,34 +201,8 @@ closed in control:      0/5  (must be 0)
 ==============================================================================
 
 ==============================================================================
-RUN -- planted effect: median 300ms, 3 seeds
+RUN -- STAGE 2 -- 300ms, 3 seeds
 ==============================================================================
-before the first run, and not reshaped afterwards:
-
-  primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
-                  regions assigned independently of endpoint; 10% of requests
-                  fail. The focus bucket raises `/api/checkout` only.
-  companions      change events (deploys, none inside the focus bucket),
-                  a dependency latency series, a node CPU series -- both series
-                  flat, so the branches must come back RULED_OUT rather than
-                  CONFIRMED.
-  report          external, filed at the end of the window.
-  runs            5 independent seeds.
-  control         the same primary index with no companions pointed at. It must
-                  NOT close. If both close, the companions changed nothing and
-                  the experiment is void.
-
-What this does and does not test. It does not test whether real incidents
-usually close -- they do not, and the corpus that ships says so. It tests
-whether the closure criteria are *satisfiable end to end* by an assembled
-traversal, which until now was unknown: three branches were appended
-NOT_VISITED unconditionally, so the closure verdict was a constant.
-
-Volume is what makes `status` comparable here, not the error rate: 10% of 500
-is above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
-different system; raising the failure rate to clear a floor would be tuning the
-corpus against its own grader.
-
 ------------------------------------------------------------------------------
 seed 4101:  with companions -> not closed    control -> not closed
     still open: [not ruled out] the rise is confined to one region -- `us-east-1` (n=163) sits +27.02 from its own level outside this window and the rest sit +13.43 f
@@ -238,34 +229,8 @@ closed in control:      0/3  (must be 0)
 ==============================================================================
 
 ==============================================================================
-RUN -- planted effect: median 160ms, 3 seeds
+RUN -- STAGE 2 -- 160ms, 3 seeds
 ==============================================================================
-before the first run, and not reshaped afterwards:
-
-  primary index   36 buckets x 10m x 500 docs; 4 endpoints; 3 services and 3
-                  regions assigned independently of endpoint; 10% of requests
-                  fail. The focus bucket raises `/api/checkout` only.
-  companions      change events (deploys, none inside the focus bucket),
-                  a dependency latency series, a node CPU series -- both series
-                  flat, so the branches must come back RULED_OUT rather than
-                  CONFIRMED.
-  report          external, filed at the end of the window.
-  runs            5 independent seeds.
-  control         the same primary index with no companions pointed at. It must
-                  NOT close. If both close, the companions changed nothing and
-                  the experiment is void.
-
-What this does and does not test. It does not test whether real incidents
-usually close -- they do not, and the corpus that ships says so. It tests
-whether the closure criteria are *satisfiable end to end* by an assembled
-traversal, which until now was unknown: three branches were appended
-NOT_VISITED unconditionally, so the closure verdict was a constant.
-
-Volume is what makes `status` comparable here, not the error rate: 10% of 500
-is above the probe's floor of 30 where 2% of 200 was not. Raising traffic is a
-different system; raising the failure rate to clear a floor would be tuning the
-corpus against its own grader.
-
 ------------------------------------------------------------------------------
 seed 4101:  with companions -> not closed    control -> not closed
     still open: [not ruled out] the rise is confined to one service -- `storefront` (n=150) sits +20.51 from its own level outside this window and the rest sit +7.20 
@@ -288,6 +253,117 @@ seed 4103:  with companions -> not closed    control -> not closed
 
 ==============================================================================
 closed with companions: 0/3
+closed in control:      0/3  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- STAGE 3 -- RULED_OUT = p > alpha, swapped locally and reverted -- 900ms, 5 seeds
+==============================================================================
+------------------------------------------------------------------------------
+seed 4101:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> not closed    control -> not closed
+    still open: [not ruled out] the rise is confined to one service (service=checkout-api) -- `checkout-api` (n=168) sits +46.45 from its own level outside this windo
+    still open: [no chain] no root-to-leaf path is confirmed end to end
+    control blocked by 5 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [magnitude] NOT_QUANTIFIED: +1927.69 accounted of +1909.04 observed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4104:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4105:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 3/5
+closed in control:      0/5  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- STAGE 3 -- RULED_OUT = p > alpha -- 160ms, 3 seeds
+==============================================================================
+------------------------------------------------------------------------------
+seed 4101:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> not closed    control -> not closed
+    still open: [magnitude] UNDER_ACCOUNTED: +81.58 accounted of +114.75 observed
+    control blocked by 5 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [magnitude] NOT_QUANTIFIED: +96.57 accounted of +77.92 observed
+    control blocked by 5 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 1/3
+closed in control:      0/3  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- STAGE 4 -- IMMATERIAL -- 900ms, 5 seeds
+==============================================================================
+------------------------------------------------------------------------------
+seed 4101:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [magnitude] NOT_QUANTIFIED: +1927.69 accounted of +1909.04 observed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4104:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4105:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 4/5
+closed in control:      0/5  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- STAGE 4 -- IMMATERIAL -- 300ms, 3 seeds
+==============================================================================
+------------------------------------------------------------------------------
+seed 4101:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [magnitude] NOT_QUANTIFIED: +443.01 accounted of +424.36 observed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 2/3
+closed in control:      0/3  (must be 0)
+==============================================================================
+
+==============================================================================
+RUN -- STAGE 4 -- IMMATERIAL -- 160ms, 3 seeds
+==============================================================================
+------------------------------------------------------------------------------
+seed 4101:  with companions -> CLOSED    control -> not closed
+    control blocked by 4 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4102:  with companions -> not closed    control -> not closed
+    still open: [magnitude] UNDER_ACCOUNTED: +81.58 accounted of +114.75 observed
+    control blocked by 5 reason(s), 3 of them unwalked branches
+------------------------------------------------------------------------------
+seed 4103:  with companions -> not closed    control -> not closed
+    still open: [magnitude] NOT_QUANTIFIED: +96.57 accounted of +77.92 observed
+    control blocked by 5 reason(s), 3 of them unwalked branches
+
+==============================================================================
+closed with companions: 1/3
 closed in control:      0/3  (must be 0)
 ==============================================================================
 

@@ -71,6 +71,7 @@ class NodeState(str, Enum):
     CONFIRMED = "CONFIRMED"
     RULED_OUT = "RULED_OUT"
     INCONCLUSIVE = "INCONCLUSIVE"
+    IMMATERIAL = "IMMATERIAL"
     PENDING = "PENDING"
     NOT_VISITED = "NOT_VISITED"
 
@@ -81,7 +82,8 @@ class NodeState(str, Enum):
 # the reader should do next.
 
 #: Finished work. Re-running changes nothing.
-SETTLED = frozenset({NodeState.CONFIRMED, NodeState.RULED_OUT, NodeState.INCONCLUSIVE})
+SETTLED = frozenset({NodeState.CONFIRMED, NodeState.RULED_OUT, NodeState.INCONCLUSIVE,
+                     NodeState.IMMATERIAL})
 
 #: Can still move, and the only states that produce a next action.
 MOVABLE = frozenset({NodeState.PENDING, NodeState.NOT_VISITED})
@@ -89,7 +91,19 @@ MOVABLE = frozenset({NodeState.PENDING, NodeState.NOT_VISITED})
 # The second asks: has this branch been disposed of? It decides closure.
 
 #: Resolved one way or the other. The branch is off the board.
-DISPOSED = frozenset({NodeState.CONFIRMED, NodeState.RULED_OUT})
+#:
+#: IMMATERIAL is here, and it is the one that needs defending. It does not mean
+#: the branch was ruled out -- it was not, and the tree still reports it as
+#: elevated. It means the branch was *measured against the thing being
+#: explained* and cannot be it: a subgroup gap of 13ms is not a rival account of
+#: a 1900ms rise at any confidence.
+#:
+#: The earlier version had no such comparison. A branch was judged only against
+#: its own null, so a wobble in the upper half of that null blocked a chain
+#: exactly as a live rival did, and the measured cost was that nothing ever
+#: closed: 0 of 11 runs, with three innocent dimensions each needing to land in
+#: the lower half of their own null by chance. See examples/closure-ceiling.txt.
+DISPOSED = frozenset({NodeState.CONFIRMED, NodeState.RULED_OUT, NodeState.IMMATERIAL})
 
 #: Still standing. Any of these at a decision point keeps the chain open --
 #: a confirmed branch means nothing while an alternative to it is still live.
@@ -102,9 +116,18 @@ OPEN = frozenset({NodeState.INCONCLUSIVE, NodeState.PENDING, NodeState.NOT_VISIT
 # *permanently* unclosable -- no amount of waiting or walking moves it, only
 # different evidence, which may not exist. That case is not a defect in the
 # tool. It is the honest answer, and the evaluation includes one.
+#
+# IMMATERIAL is settled and disposed, and is not a weaker INCONCLUSIVE. The two
+# answer different questions. INCONCLUSIVE says *we could not establish whether
+# this is where the effect lives*. IMMATERIAL says *we measured how big this is,
+# and it is too small to be where the effect lives* -- a statement about size,
+# which is available whether or not the first question was settled. A branch
+# that cannot be measured at all is never IMMATERIAL; it stays INCONCLUSIVE,
+# because "too small to matter" is a measurement and not a shrug.
 
 #: States that require the node to say what was queried and what came back.
-_REQUIRES_EVIDENCE = frozenset({NodeState.CONFIRMED, NodeState.RULED_OUT, NodeState.INCONCLUSIVE})
+_REQUIRES_EVIDENCE = frozenset({NodeState.CONFIRMED, NodeState.RULED_OUT,
+                                NodeState.INCONCLUSIVE, NodeState.IMMATERIAL})
 
 
 def _parse(ts: Optional[str]) -> Optional[datetime]:
