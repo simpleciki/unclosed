@@ -1,0 +1,48 @@
+==============================================================================
+unclosed -- vendor neutrality: the same audit on two deployment shapes
+==============================================================================
+
+  plaintext : http://127.0.0.1:9250   (security plugin disabled)
+  secured   : https://127.0.0.1:9251   (security plugin on, self-signed cert, basic auth)
+
+Both seeded from the same generator with the same seed. Both audits pinned
+to the same --as-of, so anything that differs below is a portability
+defect rather than a difference in the data.
+
+------------------------------------------------------------------------------
+1. THE FAILURE PATHS  (what a user hits before they ever see a verdict)
+------------------------------------------------------------------------------
+
+  [  refuses] https, no credentials
+              OpenSearch returned 401 for /unclosed-real-spike/_mapping: the cluster requires credentials. Pass --username and set $OPENSEARCH_PASSWORD. Detail: Unauthorized
+  [  refuses] http against a TLS port
+              Cannot reach OpenSearch at http://127.0.0.1:9251: RemoteDisconnected: Remote end closed connection without response. A cluster with the security plugin enabled serves https, not http.
+  [  refuses] https, self-signed cert, no --insecure and no --ca-cert
+              Cannot reach OpenSearch at https://127.0.0.1:9251: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1007) -- the certificate is not signed by 
+
+------------------------------------------------------------------------------
+2. THE SAME AUDIT, BOTH SHAPES
+------------------------------------------------------------------------------
+
+  pinned to --as-of 2026-08-03T12:49:59.586000Z
+
+  plaintext exit 0    secured exit 0
+    plaintext  VERDICT: UNDECIDABLE
+               TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
+    secured    VERDICT: UNDECIDABLE
+               TRANSPORT: https://127.0.0.1:9251, TLS with VERIFICATION DISABLED, basic auth as `admin`
+
+------------------------------------------------------------------------------
+3. DIFF
+------------------------------------------------------------------------------
+
+  Every differing line, with the transport lines marked as expected:
+
+    (expected) -TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
+    (expected) +TRANSPORT: https://127.0.0.1:9251, TLS with VERIFICATION DISABLED, basic auth as `admin`
+
+  material differences: 0
+
+  A material difference here is a portability defect: the same question,
+  the same data, two deployments, two answers.
+

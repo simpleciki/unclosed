@@ -13,7 +13,9 @@ description: >
   and what would prove it", and log-analytics when the question is already
   "query the logs for X".
 compatibility: >
-  Requires a running OpenSearch cluster. PPL queries require the SQL plugin
+  Requires a running OpenSearch cluster, with or without the security plugin:
+  HTTPS, basic auth and a private CA are all supported, and the password is read
+  from $OPENSEARCH_PASSWORD rather than argv. PPL queries require the SQL plugin
   (built-in). No paid, proprietary, or license-restricted dependencies --
   Python standard library only.
 metadata:
@@ -308,6 +310,35 @@ than Gate 2 had.
 that satisfies all four is reported as a chain that survived being checked — and
 still not as a cause, because the thing that would license that claim, knowing
 the counterfactual, is not in the logs.
+
+## Connecting to a cluster
+
+Both entry points take the same connection flags, because the deployment you are
+pointed at is almost never the one with security switched off:
+
+| Flag | Why |
+|---|---|
+| `--endpoint` | Defaults to `http://127.0.0.1:9250`. Deliberately not `9200` — relying on the default is how a hardcoded endpoint gets into the code. |
+| `--username` | Basic auth. The **password is read from `$OPENSEARCH_PASSWORD`** and is not accepted on the command line: argv is readable by other processes on the host, and lands in shell history besides. `$OPENSEARCH_USERNAME` also works. |
+| `--ca-cert` | PEM bundle to verify the cluster's certificate against. |
+| `--insecure` | Skip certificate verification. |
+
+TLS is decided by the scheme, not by a separate flag. Every report prints a
+`TRANSPORT:` line naming the endpoint, whether the certificate was verified and
+against what, and whether credentials were used — for the same reason the scan
+window records which clock chose it. **A run that skipped verification and did
+not say so leaves no way to tell whether the cluster reached is the cluster
+named**, and `--insecure` is exactly the flag someone sets once and forgets.
+
+Failures are sentences. No credentials, `http` against a TLS port, and an
+untrusted certificate each name what to do about them instead of raising a
+traceback, because those three are what a user meets before they ever meet a
+verdict.
+
+The portability of this is checked rather than asserted: `eval/vendor_neutrality.py`
+runs the same audit against a plaintext cluster and a security-enabled one,
+seeded identically and pinned to the same `--as-of`, and diffs the two reports.
+The only line that may differ is `TRANSPORT:`.
 
 ## Building the tree from an index
 

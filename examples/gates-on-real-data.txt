@@ -1,6 +1,6 @@
-All three gates against a live OpenSearch 2.19.3 -- captured 2026-08-02 local
-(2026-08-03 UTC; every timestamp in the runs below is UTC).
-Container bound to 127.0.0.1:9250. Fixtures from scripts/seed_logs.py.
+All three gates against a live OpenSearch 2.19.3 -- captured 2026-08-03 local.
+Every timestamp in the runs below is UTC.
+Cluster at http://127.0.0.1:9250. Fixtures from scripts/seed_logs.py.
 
 The first three runs give the tool no reported window, so it selects the worst
 bucket itself and Gate 1 refuses to substantiate a target it drew around its own
@@ -12,13 +12,16 @@ the probe that refutes it also prints what the same statistic read over the
 documents an ingest clock places before that moment -- so a reader has the
 reporter's number rather than a choice of percentile to compute one from.
 
-Reproduce:
+Regenerate this file:
+  uv run python eval/capture_gates.py --captured-on 2026-08-03
+
+or run the commands individually:
   python scripts/seed_logs.py --scenario {fake-spike,real-spike,baseline} --recreate
-  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-fake-spike
-  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike
-  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-baseline
-  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --focus-window 2026-08-03T03:10:00.000Z --reported-at 2026-08-03T03:20:00Z
-  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --focus-window 2026-08-03T03:10:00.000Z --reported-at 2026-08-03T03:12:00Z
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-fake-spike --endpoint http://127.0.0.1:9250
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --endpoint http://127.0.0.1:9250
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-baseline --endpoint http://127.0.0.1:9250
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --focus-window 2026-08-03T12:20:00.000Z --reported-at 2026-08-03T12:30:00Z --endpoint http://127.0.0.1:9250
+  python skills/opensearch-skills/observability/unclosed/scripts/assemble_traversal.py --index unclosed-real-spike --focus-window 2026-08-03T12:20:00.000Z --reported-at 2026-08-03T12:22:00Z --endpoint http://127.0.0.1:9250
 
 The window handed to runs four and five is the one the tool picks for itself in
 run two -- named in advance here so the provenance probe has a claim to check
@@ -27,14 +30,15 @@ rather than a target this tool drew around its own arrows.
 # unclosed-fake-spike  (no reported window -- self-selected)
 ################################################################
 ==============================================================================
+TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
 VERDICT: ARTIFACT
 OBSERVATION: latency_ms in focus window = 2210.7 vs baseline 325.65 (6.8x)
-SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-fake-spike at 2026-08-03T03:49:56.211000Z
+SCAN: 2026-08-03T07:00:00Z -> 2026-08-03T13:00:00Z, anchored on newest `@timestamp` in unclosed-fake-spike at 2026-08-03T12:59:56.211000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
+       window 2026-08-03T12:20:00.000Z -> 2026-08-03T12:30:00Z is a specific, checkable claim
   [COULD_NOT_RUN] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
        the report does not say when it was made, so it cannot be compared to the window it describes
@@ -71,14 +75,15 @@ explaining something that did not happen.
 # unclosed-real-spike  (no reported window -- self-selected)
 ################################################################
 ==============================================================================
+TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
 VERDICT: UNDECIDABLE
 OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
-SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T03:49:59.586000Z
+SCAN: 2026-08-03T07:00:00Z -> 2026-08-03T13:00:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T12:59:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
+       window 2026-08-03T12:20:00.000Z -> 2026-08-03T12:30:00Z is a specific, checkable claim
   [COULD_NOT_RUN] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
        the report does not say when it was made, so it cannot be compared to the window it describes
@@ -109,19 +114,19 @@ Not knocked down is not the same as cleared. Missing:
   - an observation window specified before the data was examined (external report)
 
 ==============================================================================
-OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T03:10:00.000Z
+OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T12:20:00.000Z
 PREMISE (Gate 1): UNDECIDABLE
 
 TRAVERSAL:
-  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T03:10:00.000Z
+  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T12:20:00.000Z
        asked: p99 per 10m bucket over the last 6h
        got:   focus 1783.95 vs baseline 325.65 (n=200)
-    [INCONCLUSIVE] the rise is confined to one endpoint
+    [IMMATERIAL  ] the rise is confined to one endpoint
          asked: measured each `endpoint` value against its own level outside the window, compared the movement with the rest's, and judged it against the change that redrawing at one level produces at the same subgroup sizes
-         got:   `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
-    [INCONCLUSIVE] the rise is confined to one region
+         got:   `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance, and at 107.58 it is 7.4% of the +1458.30 being explained -- under the 20% this project will size an explanation to, so it is not a rival account of it
+    [IMMATERIAL  ] the rise is confined to one region
          asked: measured each `region` value against its own level outside the window, compared the movement with the rest's, and judged it against the change that redrawing at one level produces at the same subgroup sizes
-         got:   `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
+         got:   `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance, and at 78.49 it is 5.4% of the +1458.30 being explained -- under the 20% this project will size an explanation to, so it is not a rival account of it
     [INCONCLUSIVE] the rise is confined to one service
          asked: grouped the focus window by `service`
          got:   only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
@@ -141,8 +146,6 @@ TRAVERSAL:
 GATE 2: NOT CLOSED
   - [premise] Gate 1 returned UNDECIDABLE and still lacks: the moment the observation was made (report/evaluation timestamp)
   - [premise] Gate 1 returned UNDECIDABLE and still lacks: an observation window specified before the data was examined (external report)
-  - [not ruled out] the rise is confined to one endpoint -- `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
-  - [not ruled out] the rise is confined to one region -- `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
   - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
   - [not ruled out] the rise is confined to failing requests -- no value could be compared (200 (n=198 vs 2); 500 (n=2 vs 198)); one needs 30 documents on both sides of the comparison, and enough of its own outside this window to say what it normally runs at -- short of either, the answer reports sample size and not concentration
   - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
@@ -155,9 +158,7 @@ WHAT WOULD MOVE THIS:
     - a deploy or config change landed in this window
     - an upstream dependency got slower
     - the host or container lost resources
-  neither -- 4 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
-    - the rise is confined to one endpoint
-    - the rise is confined to one region
+  neither -- 2 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
     - the rise is confined to one service
     - the rise is confined to failing requests
 
@@ -179,8 +180,6 @@ MAGNITUDE: NOT_QUANTIFIED
 ALL FOUR CONDITIONS: NOT CLOSED
   - [premise] Gate 1 returned UNDECIDABLE and still lacks: the moment the observation was made (report/evaluation timestamp)
   - [premise] Gate 1 returned UNDECIDABLE and still lacks: an observation window specified before the data was examined (external report)
-  - [not ruled out] the rise is confined to one endpoint -- `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
-  - [not ruled out] the rise is confined to one region -- `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
   - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
   - [not ruled out] the rise is confined to failing requests -- no value could be compared (200 (n=198 vs 2); 500 (n=2 vs 198)); one needs 30 documents on both sides of the comparison, and enough of its own outside this window to say what it normally runs at -- short of either, the answer reports sample size and not concentration
   - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
@@ -192,14 +191,15 @@ ALL FOUR CONDITIONS: NOT CLOSED
 # unclosed-baseline  (no reported window -- self-selected)
 ################################################################
 ==============================================================================
+TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
 VERDICT: UNDECIDABLE
 OBSERVATION: latency_ms in focus window = 409.79 vs baseline 317.14 (1.3x)
-SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-baseline at 2026-08-03T03:49:59.586000Z
+SCAN: 2026-08-03T07:00:00Z -> 2026-08-03T13:00:00Z, anchored on newest `@timestamp` in unclosed-baseline at 2026-08-03T12:59:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-02T23:10:00.000Z -> 2026-08-02T23:20:00Z is a specific, checkable claim
+       window 2026-08-03T08:20:00.000Z -> 2026-08-03T08:30:00Z is a specific, checkable claim
   [COULD_NOT_RUN] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
        the report does not say when it was made, so it cannot be compared to the window it describes
@@ -230,11 +230,11 @@ Not knocked down is not the same as cleared. Missing:
   - an observation window specified before the data was examined (external report)
 
 ==============================================================================
-OBSERVATION: latency_ms p99 317.14 -> 409.79 in 2026-08-02T23:10:00.000Z
+OBSERVATION: latency_ms p99 317.14 -> 409.79 in 2026-08-03T08:20:00.000Z
 PREMISE (Gate 1): UNDECIDABLE
 
 TRAVERSAL:
-  [CONFIRMED   ] latency_ms rose +92.65 in 2026-08-02T23:10:00.000Z
+  [CONFIRMED   ] latency_ms rose +92.65 in 2026-08-03T08:20:00.000Z
        asked: p99 per 10m bucket over the last 6h
        got:   focus 409.79 vs baseline 317.14 (n=200)
     [RULED_OUT   ] the rise is confined to one endpoint
@@ -307,20 +307,21 @@ ALL FOUR CONDITIONS: NOT CLOSED
 # unclosed-real-spike  (external report, window named in advance)
 ################################################################
 ==============================================================================
+TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
 VERDICT: SUBSTANTIATED
 OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
-SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T03:49:59.586000Z
+SCAN: 2026-08-03T07:00:00Z -> 2026-08-03T13:00:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T12:59:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
+       window 2026-08-03T12:20:00.000Z -> 2026-08-03T12:30:00Z is a specific, checkable claim
   [NOT_REFUTED  ] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
-       reported at 2026-08-03T03:20:00Z, window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z (100% elapsed at report time) -- the window was complete when it was judged
+       reported at 2026-08-03T12:30:00Z, window 2026-08-03T12:20:00.000Z -> 2026-08-03T12:30:00Z (100% elapsed at report time) -- the window was complete when it was judged
   [NOT_REFUTED  ] window_provenance
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
-       externally reported at 2026-08-03T03:20:00Z; the window was named before this audit ran
+       externally reported at 2026-08-03T12:30:00Z; the window was named before this audit ran
   [NOT_REFUTED  ] estimator_choice
        tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
        `tdigest` sees +1458.30, `hdr` sees +1339.46 over the same documents (92% as large) -- both rulers see it; they disagree about its size by 8%, which is carried forward rather than absorbed
@@ -341,19 +342,19 @@ Every refutation attempt ran and every one failed. The observation stands.
 This pass rests on the record above, not on the absence of a complaint.
 
 ==============================================================================
-OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T03:10:00.000Z
+OBSERVATION: latency_ms p99 325.65 -> 1783.95 in 2026-08-03T12:20:00.000Z
 PREMISE (Gate 1): SUBSTANTIATED
 
 TRAVERSAL:
-  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T03:10:00.000Z
+  [CONFIRMED   ] latency_ms rose +1458.30 in 2026-08-03T12:20:00.000Z
        asked: p99 per 10m bucket over the last 6h
        got:   focus 1783.95 vs baseline 325.65 (n=200)
-    [INCONCLUSIVE] the rise is confined to one endpoint
+    [IMMATERIAL  ] the rise is confined to one endpoint
          asked: measured each `endpoint` value against its own level outside the window, compared the movement with the rest's, and judged it against the change that redrawing at one level produces at the same subgroup sizes
-         got:   `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
-    [INCONCLUSIVE] the rise is confined to one region
+         got:   `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance, and at 107.58 it is 7.4% of the +1458.30 being explained -- under the 20% this project will size an explanation to, so it is not a rival account of it
+    [IMMATERIAL  ] the rise is confined to one region
          asked: measured each `region` value against its own level outside the window, compared the movement with the rest's, and judged it against the change that redrawing at one level produces at the same subgroup sizes
-         got:   `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
+         got:   `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance, and at 78.49 it is 5.4% of the +1458.30 being explained -- under the 20% this project will size an explanation to, so it is not a rival account of it
     [INCONCLUSIVE] the rise is confined to one service
          asked: grouped the focus window by `service`
          got:   only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
@@ -371,8 +372,6 @@ TRAVERSAL:
          NOT WALKED: needs node-level CPU/memory/disk metrics, which are not request logs
 
 GATE 2: NOT CLOSED
-  - [not ruled out] the rise is confined to one endpoint -- `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
-  - [not ruled out] the rise is confined to one region -- `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
   - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
   - [not ruled out] the rise is confined to failing requests -- no value could be compared (200 (n=198 vs 2); 500 (n=2 vs 198)); one needs 30 documents on both sides of the comparison, and enough of its own outside this window to say what it normally runs at -- short of either, the answer reports sample size and not concentration
   - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
@@ -385,9 +384,7 @@ WHAT WOULD MOVE THIS:
     - a deploy or config change landed in this window
     - an upstream dependency got slower
     - the host or container lost resources
-  neither -- 4 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
-    - the rise is confined to one endpoint
-    - the rise is confined to one region
+  neither -- 2 branch(es) were queried and the answer settles nothing. These need different evidence, and it may not exist:
     - the rise is confined to one service
     - the rise is confined to failing requests
 
@@ -407,8 +404,6 @@ MAGNITUDE: NOT_QUANTIFIED
 
 ==============================================================================
 ALL FOUR CONDITIONS: NOT CLOSED
-  - [not ruled out] the rise is confined to one endpoint -- `/api/profile` (n=54) sits +451.39 from its own level outside this window and the rest sit +343.81 from theirs -- a change of +107.58 in a gap that already stood at +1.38, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 56.47 and the 95% point at 145.11 (p=0.157); 4 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
-  - [not ruled out] the rise is confined to one region -- `us-west-2` (n=76) sits +432.66 from its own level outside this window and the rest sit +354.17 from theirs -- a change of +78.49 in a gap that already stood at +0.92, measured over 5000 baseline documents. Redrawing each group from its own latencies 400 times, held at one level, puts the typical largest change at 53.79 and the 95% point at 135.91 (p=0.322); 3 value(s) compared; the baseline holds more than 5000 documents, so each normal is estimated from a random draw of it -- elevated, but not beyond what this window produces by chance; not enough to say the effect lives here
   - [not ruled out] the rise is confined to one service -- only one value present (storefront); a dimension with nothing to compare cannot separate a concentrated rise from a uniform one
   - [not ruled out] the rise is confined to failing requests -- no value could be compared (200 (n=198 vs 2); 500 (n=2 vs 198)); one needs 30 documents on both sides of the comparison, and enough of its own outside this window to say what it normally runs at -- short of either, the answer reports sample size and not concentration
   - [not visited] a deploy or config change landed in this window -- needs deploy/change events -- this index carries request logs only
@@ -420,20 +415,21 @@ ALL FOUR CONDITIONS: NOT CLOSED
 # unclosed-real-spike  (same window, same data, reported 2 minutes in)
 ################################################################
 ==============================================================================
+TRANSPORT: http://127.0.0.1:9250, plaintext, no credentials
 VERDICT: ARTIFACT
 OBSERVATION: latency_ms in focus window = 1783.95 vs baseline 325.65 (5.5x)
-SCAN: 2026-08-02T21:50:00Z -> 2026-08-03T03:50:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T03:49:59.586000Z
+SCAN: 2026-08-03T07:00:00Z -> 2026-08-03T13:00:00Z, anchored on newest `@timestamp` in unclosed-real-spike at 2026-08-03T12:59:59.586000Z
 
 REFUTATION ATTEMPTS (what was actually checked):
   [NOT_REFUTED  ] unanchored_report
        tried to show: there is no observation here -- the report never named a moment, so nothing about it could be wrong
-       window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z is a specific, checkable claim
+       window 2026-08-03T12:20:00.000Z -> 2026-08-03T12:30:00Z is a specific, checkable claim
   [REFUTED      ] observation_moment
        tried to show: the reporter judged a window that had not finished; the incident existed only at evaluation time
-       reported at 2026-08-03T03:12:00Z, window 2026-08-03T03:10:00.000Z -> 2026-08-03T03:20:00Z (20% elapsed at report time) -- below 90%; the reporter saw a partial window, and the data audited here is not the data that triggered the report. Same statistic over the 43 document(s) an ingest clock places before that moment: 2140.39 against 1783.95 once the window filled (120% of it). Ingest order is the closest the index can come to what the reporter queried; it is not that screen
+       reported at 2026-08-03T12:22:00Z, window 2026-08-03T12:20:00.000Z -> 2026-08-03T12:30:00Z (20% elapsed at report time) -- below 90%; the reporter saw a partial window, and the data audited here is not the data that triggered the report. Same statistic over the 43 document(s) an ingest clock places before that moment: 2140.39 against 1783.95 once the window filled (120% of it). Ingest order is the closest the index can come to what the reporter queried; it is not that screen
   [NOT_REFUTED  ] window_provenance
        tried to show: the window was chosen after seeing the data, so finding something there proves nothing
-       externally reported at 2026-08-03T03:12:00Z; the window was named before this audit ran
+       externally reported at 2026-08-03T12:22:00Z; the window was named before this audit ran
   [NOT_REFUTED  ] estimator_choice
        tried to show: the jump is a property of the estimator, not the system -- a different ruler does not see it
        `tdigest` sees +1458.30, `hdr` sees +1339.46 over the same documents (92% as large) -- both rulers see it; they disagree about its size by 8%, which is carried forward rather than absorbed

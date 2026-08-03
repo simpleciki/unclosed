@@ -72,7 +72,8 @@ import urllib.request
 from typing import NamedTuple, Optional
 
 sys.path.insert(0, __file__.rsplit("assemble_traversal.py", 1)[0])
-from audit_window import build_observation  # noqa: E402
+from audit_window import _get as _request  # noqa: E402
+from audit_window import add_connection_args, build_observation, endpoint_from_args  # noqa: E402
 from closure_audit import RESIDUAL_TOLERANCE, audit_closure, closes  # noqa: E402
 from concentration_null import MIN_SUBPOP_N as NULL_MIN_N  # noqa: E402
 from concentration_null import assess  # noqa: E402
@@ -103,17 +104,13 @@ SAMPLE_SEED = 20260802
 
 
 def _post(endpoint, path, body):
-    req = urllib.request.Request(
-        endpoint + path, data=json.dumps(body).encode("utf-8"), method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        raise SystemExit(f"OpenSearch returned {exc.code} for {path}: {exc.read().decode('utf-8')[:300]}")
-    except urllib.error.URLError as exc:
-        raise SystemExit(f"Cannot reach OpenSearch at {endpoint}: {exc.reason}")
+    """Delegate to the one transport, which knows about credentials and TLS.
+
+    This used to be a second copy of the same twelve lines. Two transports means
+    a cluster that needs authentication has to be taught twice, and the second
+    one is the one nobody remembers.
+    """
+    return _request(endpoint, path, body)
 
 
 def _window(time_field, start, end):
@@ -606,7 +603,6 @@ def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, loo
 def main() -> int:
     ap = argparse.ArgumentParser(description="Assemble a traversal from an index and run all three gates.")
     ap.add_argument("--index", required=True)
-    ap.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     ap.add_argument("--metric", default="latency_ms")
     ap.add_argument("--time-field", default="@timestamp")
     ap.add_argument("--dimension", default="endpoint")
@@ -624,7 +620,9 @@ def main() -> int:
                     help="A dependency's own latency series, e.g. dep-latency:latency_ms")
     ap.add_argument("--host-metrics", default=None, metavar="INDEX:FIELD",
                     help="A node-level resource series, e.g. node-metrics:cpu_pct")
+    add_connection_args(ap)
     args = ap.parse_args()
+    endpoint = endpoint_from_args(args)
 
     def _pair(value, flag):
         if not value:
@@ -637,13 +635,14 @@ def main() -> int:
                 "dependency": _pair(args.dependency, "--dependency"),
                 "host": _pair(args.host_metrics, "--host-metrics")}
 
-    run = assemble(args.endpoint, args.index, args.metric, args.time_field, args.dimension,
+    run = assemble(endpoint, args.index, args.metric, args.time_field, args.dimension,
                    args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at,
                    args.as_of, external)
     premise, traversal = run.premise, run.traversal
     observed_effect, uncertainty = run.observed_effect, run.uncertainty
 
     print("=" * 78)
+    print(f"TRANSPORT: {endpoint.describe()}")
     print(premise.to_text())
     print()
     if premise.verdict is Verdict.ARTIFACT:

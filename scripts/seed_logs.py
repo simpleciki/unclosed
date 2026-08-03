@@ -32,9 +32,12 @@ documents, so a captured gate verdict stays reproducible for reviewers.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import math
+import os
 import random
+import ssl
 import statistics
 import sys
 import urllib.error
@@ -83,13 +86,48 @@ INDEX_MAPPING = {
 }
 
 
+#: Connection settings for a cluster with the security plugin on. Set once by
+#: main() rather than threaded through, because this is a fixture loader and not
+#: the deliverable -- the skill's own transport is in
+#: skills/.../scripts/audit_window.py and does this properly.
+#:
+#: The password comes from the environment, never from argv: argv is readable by
+#: other processes on the host.
+_AUTH: str | None = None
+_TLS = None
+PASSWORD_ENV = "OPENSEARCH_PASSWORD"
+USERNAME_ENV = "OPENSEARCH_USERNAME"
+
+
+def _configure_connection(url: str, username: str | None, ca_cert: str | None, insecure: bool) -> str:
+    global _AUTH, _TLS
+    username = username or os.environ.get(USERNAME_ENV)
+    password = os.environ.get(PASSWORD_ENV)
+    if username and password is None:
+        raise SystemExit(f"--username was given but ${PASSWORD_ENV} is not set.")
+    if username:
+        token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+        _AUTH = f"Basic {token}"
+    if url.lower().startswith("https://"):
+        if insecure:
+            _TLS = ssl.create_default_context()
+            _TLS.check_hostname = False
+            _TLS.verify_mode = ssl.CERT_NONE
+        else:
+            _TLS = ssl.create_default_context(cafile=ca_cert)
+    return f"{url}, {'basic auth' if _AUTH else 'no credentials'}, " + (
+        "TLS verification disabled" if _TLS and insecure else "TLS verified" if _TLS else "plaintext")
+
+
 def _request(method: str, url: str, body: str | None = None, content_type: str = "application/json"):
     data = body.encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
         req.add_header("Content-Type", content_type)
+    if _AUTH:
+        req.add_header("Authorization", _AUTH)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=30, context=_TLS) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as exc:
         return exc.code, json.loads(exc.read().decode("utf-8") or "{}")
@@ -222,8 +260,13 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20260801)
     parser.add_argument("--recreate", action="store_true", help="Delete the index first")
     parser.add_argument("--dry-run", action="store_true", help="Summarize without writing")
+    parser.add_argument("--username", default=None,
+                        help=f"Basic-auth user; password from ${PASSWORD_ENV}, never from argv.")
+    parser.add_argument("--ca-cert", default=None, help="PEM bundle to verify the cluster against.")
+    parser.add_argument("--insecure", action="store_true", help="Skip TLS certificate verification.")
     args = parser.parse_args()
 
+    transport = _configure_connection(args.endpoint, args.username, args.ca_cert, args.insecure)
     index = args.index or f"unclosed-{args.scenario}"
 
     # Align to a wall-clock bucket boundary. OpenSearch `span(@timestamp, 10m)`
@@ -239,6 +282,7 @@ def main() -> int:
 
     print(f"scenario     : {args.scenario}")
     print(f"index        : {index}")
+    print(f"transport    : {transport}")
     print(f"documents    : {len(docs)}")
     if stats:
         print(f"baseline     : n={stats['baseline_n']:>5}  p99={stats['baseline_p99']} ms")
