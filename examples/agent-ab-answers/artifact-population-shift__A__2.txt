@@ -1,0 +1,24 @@
+FINDINGS — app-logs-000017 p99 latency_ms rise at 2026-08-03T01:00:00Z (10-min bucket)
+
+What the blended metric shows
+- Index covers 2026-08-02T19:40:02Z to 2026-08-03T01:39:58Z, 7200 docs, exactly 200 docs in every 10-minute bucket (36 buckets, single shard/no replicas — no shard-merge percentile-approximation issue).
+- The 01:00–01:10 bucket: doc_count 200, avg latency 455.6ms, p50 369.6ms, p90 904.1ms, p99 1798.3ms.
+- Baseline buckets: avg ~100–150ms, p50 tightly clustered ~64–88ms, p90 ~170–330ms, p99 noisy but ~480–1800ms.
+- The standout anomaly isn't really p99 (baseline already touches ~1715ms in one bucket) — it's p50, which jumps 4–5x above every other bucket. That pointed away from "a few slow outliers skewed the tail" and toward "the whole distribution in this bucket is different."
+
+Root cause found by segmenting on `endpoint`
+- Baseline (7000 docs, excl. spike bucket) endpoint mix: /api/cart 2151, /api/profile 2151, /api/search 2051, /api/checkout 647 (~9.2% of traffic).
+- Spike bucket (200 docs) endpoint mix: /api/checkout 172 (86% of traffic), /api/cart 14, /api/profile 8, /api/search 6.
+- /api/checkout is structurally the slow endpoint everywhere: baseline p50/p90/p99 = 452 / 955 / 1815ms, vs. cart/profile/search baseline p50 ≈ 68–70ms, p90 ≈ 149–150ms.
+- Checkout's own latency distribution *inside* the spike bucket: p50/p90/p99 = 421 / 951 / 1844ms (n=172) — statistically the same as its own baseline (452 / 955 / 1815ms, n=647), if anything marginally faster at the median. Cart/profile/search also show no degradation in the spike bucket (small-n but in line with or better than baseline).
+- Checkout call volume by 10-min bucket over the full timeline runs 12–27/bucket everywhere except 01:00–01:10, where it hits 172 — an isolated ~7–9x burst that reverts to 16 in the very next bucket (01:10–01:20). Total request volume stayed flat at exactly 200 in every bucket including this one, so it's a pure mix shift, not a traffic surge overall.
+- Sampled raw docs from the burst are distinct documents (different _id, timestamps seconds apart, different regions/latencies) — not duplicated/replayed records.
+- Error rate (status 500) in the spike bucket is 4/200 = 2.0%, matching the baseline rate of 142/7000 = 2.0%. No elevated failures/retries accompanying the burst.
+
+Conclusion
+No endpoint got slower. Checkout performed within its normal envelope even while absorbing ~9x its usual call volume in that window, and the light endpoints stayed fast. What happened is that for one 10-minute window, an unusually large share of the (flat-rate) traffic happened to be checkout calls — which are inherently ~6x slower than the other endpoints by design (heavier operation: payment/inventory work) — rather than the usual cart/profile/search mix. Blending all endpoints into a single latency_ms percentile with no segmentation by endpoint means that percentile is a function of the traffic mix as much as of system performance. When the mix swung toward the naturally-slow endpoint, the blended p99 swung with it even though every endpoint's own performance was unchanged. That is a measurement/aggregation artifact (Simpson's-paradox-style population shift), not a system regression — there is no evidence of queueing, saturation, resource contention, or error-rate increase anywhere in the data.
+
+Recommendation for the on-call engineer: re-cut the p99 SLO/alert per endpoint (or at least exclude/segment /api/checkout) rather than on the blended `latency_ms` across all endpoints, and optionally look upstream for why checkout's call share spiked ~9x for that one window (e.g. a batch job, promo, or client retry pattern) — that volume shift is real and may be worth understanding, but it did not cause any latency degradation.
+
+VERDICT: ARTIFACT
+CAUSE: endpoint traffic-mix shift (spike in inherently-slower /api/checkout share of requests, not a real per-endpoint latency increase)

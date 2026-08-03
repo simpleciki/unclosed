@@ -1,0 +1,44 @@
+What happened in app-logs-000017, bucket 2026-08-03T01:00:00Z-01:10:00Z:
+
+The pooled (all-endpoints) percentiles for that bucket vs. the rest of the index (baseline, n=7000) did jump hard:
+- p50: 369.6ms vs 74.6ms baseline (4.9x)
+- p90: 904.1ms vs 227.2ms baseline (4.0x)
+- p99: 1798.3ms vs 928.4ms baseline (1.9x)
+
+But this index mixes four endpoints with very different intrinsic latency, and the flagged bucket's endpoint composition is wildly different from normal:
+
+Flagged bucket (n=200):
+- /api/checkout: 172 docs (86%)
+- /api/cart: 14 (7%)
+- /api/profile: 8 (4%)
+- /api/search: 6 (3%)
+
+Baseline, rest of index (n=7000):
+- /api/checkout: 647 docs (9.2%)
+- /api/cart: 2151 (30.7%)
+- /api/profile: 2151 (30.7%)
+- /api/search: 2051 (29.3%)
+
+/api/checkout has always been the slow endpoint. Baseline per-endpoint p50/p90/p99:
+- /api/checkout: 452 / 955 / 1815 ms
+- /api/cart: 70 / 149 / 265 ms
+- /api/profile: 68 / 150 / 287 ms
+- /api/search: 68 / 149 / 324 ms
+
+Checked whether checkout itself got slower during the flagged bucket: no. Checkout-only latency inside the bucket (n=172) is p50 421 / p90 951 / p99 1844ms, statistically indistinguishable from checkout's own baseline (452 / 955 / 1815ms, n=647). The other three endpoints inside the bucket are also at their normal levels for that sample size (p50/p90 roughly 55-100 / 85-225ms, same range as always). So no endpoint's actual serving time changed.
+
+Ruled out other explanations:
+- Volume: every 10-minute bucket across the full 6-hour index has exactly 200 docs, including this one - not a traffic-volume spike.
+- Errors: 4/200 (2.0%) status=500 in-bucket vs 142/7000 (2.03%) baseline - unremarkable, not driving latency.
+- Region: roughly even split (us-east-1 39%, eu-central-1 34%, us-west-2 27%) - no single-region concentration.
+- Ingest pipeline: ingested_at - @timestamp is a steady 2-4 seconds throughout the bucket, same as everywhere else in the index - no backfill/replay artifact, events are live-streamed in order.
+- Recurrence: checked checkout's share bucket-by-bucket across all 36 buckets in the index - every other bucket is 12-27 docs (6-13.5%) of checkout; only this one hits 172 (86%), and the very next bucket reverts to 16 (8%). It's an isolated, single-bucket spike, not a trend and not a recurring pattern.
+
+Conclusion: nothing got slower. What changed for those 10 minutes is which endpoint dominated the sample - checkout (which has always run roughly 6x slower than the other three endpoints) briefly made up 86% of requests instead of its usual ~9-13%. Because the alerted metric pools all four endpoints into one `latency_ms` percentile, a swing in traffic composition alone is enough to drag the blended p50/p90/p99 up sharply even though every endpoint's own latency distribution stayed flat. That is a property of how the number was computed (an unsegmented percentile over a heterogeneous mix), not a change in system performance.
+
+Caveat: this index has no client/session/trace identifier, so I can't tell you why checkout's share spiked for that one window (flash-sale traffic, a client retry loop, a synthetic checkout load test, a bot, etc. are all consistent with the data). That composition swing is a real, isolated event worth understanding in its own right - but it is not a checkout performance regression and not a genuine system-wide latency regression.
+
+Recommendation: alert on p99 per-endpoint (or at least exclude/segment /api/checkout) instead of pooling all endpoints into one latency_ms percentile - as configured, this alert will refire any time checkout's share of traffic fluctuates, even when every endpoint is behaving exactly as it always does.
+
+VERDICT: ARTIFACT
+CAUSE: pooled-percentile artifact from endpoint traffic-mix shift (checkout share spiked to 86% vs ~9% baseline; per-endpoint latency unchanged)

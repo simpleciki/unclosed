@@ -1,0 +1,22 @@
+Checked app-logs-000031 directly in OpenSearch. Short version: this one's real, not a measurement fluke — even though the timing of the report (filed at 01:32:00Z, just 2 minutes into a 10-minute bucket) is exactly the kind of thing that usually DOES produce a fake spike. I checked for that specifically and ruled it out.
+
+What I found:
+
+1. Bucket completeness: the index holds 7,200 docs total, an exact 200 docs per 10-minute bucket across all 36 buckets from 2026-08-02T20:10Z to 2026-08-03T02:10Z. The 01:30:00Z-01:40:00Z bucket has exactly 200 docs too — same as every other bucket, and the newest data in the whole index is timestamped ~02:10Z, about 40 minutes after this bucket closed. So we are looking at the complete, closed bucket, not the thin slice that existed at 01:32:00Z when the page fired.
+
+2. Size of the effect: baseline (rest of the index) p50/p90/p99 = 79ms / 172ms / 329ms. The 01:30-01:40 bucket = 447ms / 1034ms / 1927ms — roughly 5-6x across the board. Critically, the median moved just as much as the tail. A small-sample or partial-window artifact inflates p99 while leaving the median alone; this moved the whole distribution, which small-N noise doesn't do.
+
+3. Persistence within the bucket: broken into 1-minute slices, every single minute from 01:30 through 01:39 shows an elevated median (355-513ms), with per-minute doc counts (15-24) in the same normal range as an ordinary bucket (checked 01:20-01:30 as a control: 16-25 docs/min, medians 65-98ms). The elevation is not front-loaded into the first couple of minutes when the alert fired — it holds for the full 10 minutes.
+
+4. Breadth: split by endpoint, all four (/api/search, /api/checkout, /api/cart, /api/profile) show roughly the same ~5x jump. Split by region, all three (us-east-1, us-west-2, eu-central-1) show the same jump. This rules out a traffic-mix shift toward one naturally-slow endpoint or region — everything got slower together.
+
+5. Error rate: 4/200 = 2% status:500 in the spike bucket vs. 142/7000 ≈ 2% baseline — unchanged, so this isn't a burst of hard failures/timeouts dominating the tail.
+
+6. Ingestion-pipeline check: ingested_at minus @timestamp lag averages ~2.2-2.7s per minute inside the spike bucket, statistically the same as the ~2.24s baseline average. The log-shipping/ingestion path did not get slower, so the elevated latency_ms values aren't a side effect of measurement/ingestion delay.
+
+7. Boundaries: the buckets immediately before (01:20-01:30Z) and after (01:40-01:50Z) are both back to normal (p50 ~75-79ms, p99 ~332-382ms), so this is a clean, contained ~10-minute incident, not a ramp or a permanently shifted baseline.
+
+Bottom line for the page: the 2-minutes-into-the-bucket timing of the report is a legitimate reason to be suspicious on principle, but it doesn't hold up here — the now-complete bucket confirms a real, sustained, system-wide latency degradation across every endpoint and region for the full 10 minutes, not an artifact of small sample size or partial data. The pattern (uniform multiplicative slowdown hitting all endpoints/regions at once, normal error rate, normal ingest lag) looks like a shared downstream dependency (DB/cache/network) got slow for that window and dragged every storefront call down with it. This index has no downstream/dependency field, so the exact culprit isn't identifiable from here — that needs a trace or dependency-level view.
+
+VERDICT: REAL
+CAUSE: uniform ~5-6x latency increase across all endpoints and regions for the full 10-minute window, consistent with a shared downstream dependency slowdown

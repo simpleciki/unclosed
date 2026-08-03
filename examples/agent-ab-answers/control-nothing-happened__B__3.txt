@@ -1,0 +1,22 @@
+BOTTOM LINE: Nothing here supports paging on a confirmed p99 regression. The report never named a moment, so the investigation had to guess which 10 minutes of the last six hours was "the spike." Asking that question twice with the exact same query, a few minutes apart, picked two different windows and produced two different verdicts. That instability is itself the finding, not a tooling glitch to work around.
+
+WHAT WAS RUN
+`unclosed`'s Gate 1 (premise audit) against app-logs-000042, metric latency_ms, 6h lookback, no --focus-window/--reported-at supplied -- because the page didn't give us one either. When the premise survives, the same tool walks Gate 2/3 (hypothesis traversal + magnitude accounting) automatically.
+
+RUN 1 (self-selected window 2026-08-02T20:10:00.000Z -> 20:20:00Z): VERDICT ARTIFACT
+p99 561.26 vs baseline 332.6 (1.7x) looked dramatic, but the sample_size_collapse probe REFUTED it: only n=47 documents landed in that bucket vs. a typical n=200 (ratio 0.235) -- under both the n=30 floor and the 25%-of-baseline floor. One REFUTED probe is enough for ARTIFACT regardless of what the other six probes say (they were all NOT_REFUTED or COULD_NOT_RUN). Gate 2 never ran: per the skill's own rule, walking a hypothesis tree under a refuted premise "would produce a tidy tree explaining something that did not happen."
+
+Direct follow-up query against the cluster (outside the skill's scripts) explains why that bucket was thin: this index is a frozen snapshot, not a live stream (doc count and max @timestamp are unchanged across repeated checks -- last write 2026-08-03T02:09:58.804Z). The 6-hour lookback is measured from wall-clock "now," which had already slid a few minutes past the data's true end when Run 1 executed, so the query's start boundary landed inside the oldest bucket and clipped most of it out. Read whole and without that clipping, that same clock bucket holds a full 200 documents at p99 298.64ms -- below baseline, not above it. Nothing in the system was slow there; the reading was an accident of when the query happened to run.
+
+RUN 2 (same command, run minutes later; self-selection shifted to 2026-08-02T21:20:00.000Z -> 21:30:00Z): VERDICT UNDECIDABLE
+This bucket is a full sample (n=200 vs. baseline typical n=200, no collapse) and survives every artifact check the skill has: both percentile estimators agree in direction (tdigest +111.60, hdr +88.88, 80% as large), composition is unchanged (distance 0.047), ingest lag is normal (1.0x), and the field mapping is continuous. Gate 2 found the rise statistically concentrated in one endpoint, /api/checkout (p=0.030) -- but Gate 3 rated that UNDER_ACCOUNTED: the confirmed branch does not add up to the size of the observed tail move (unexplained +153.34, i.e. +137.4% of the +111.60 effect, even at a tolerance already widened to 20% to allow for estimator disagreement). Region, service, and failing-status concentration were all inconclusive or untestable at this sample size. The median in this same window went down, not up (p50 79.53 -> 66.21) -- a tail-only event, not a broad slowdown. And three whole categories of plausible real explanation -- a deploy/config change, a slower upstream dependency, the host/container losing resources -- were never checked, because a request-latency log can't see any of them. The skill's own closure check: "ALL FOUR CONDITIONS: NOT CLOSED."
+
+WHY THE TWO RUNS DISAGREE
+Because no one said when, the tool has to self-select "the worst bucket in view," and per the skill's own design a self-selected window can never be certified real (SUBSTANTIATED) -- only ever refuted (ARTIFACT) or left open (UNDECIDABLE). Here that self-selection isn't even stable: the underlying data is fixed, but "last six hours" is measured against a clock that keeps moving, so which bucket counts as "worst" -- and therefore which of two very different-looking verdicts comes back -- depends on the minute you happen to query, not on anything that changed in the system.
+
+WHAT WOULD ACTUALLY SETTLE THIS
+- Ask the reporter for an approximate time. A named window is checkable; a self-selected one structurally cannot be confirmed by this tool no matter how clean it looks.
+- If /api/checkout at 21:20-21:30Z is the thread worth pulling, it needs deploy/change events, downstream dependency latency, or host resource metrics alongside these request logs -- none of which live in this index -- before that partial, under-accounted lead could become a real finding.
+
+VERDICT: CANNOT-TELL
+CAUSE: NONE

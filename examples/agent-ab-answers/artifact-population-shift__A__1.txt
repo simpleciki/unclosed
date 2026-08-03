@@ -1,0 +1,31 @@
+What happened
+
+The p99 rise in the 01:00:00-01:10:00Z bucket is real in the sense that the number did go up, but it is not caused by anything getting slower. It's a traffic-mix artifact: for that one bucket only, the sample of requests going into the "latency_ms" percentile was overwhelmingly drawn from /api/checkout, which is a structurally slow endpoint at every other time too. No endpoint's own performance changed.
+
+Evidence
+
+1. Whole-index 10-minute histogram (36 buckets, 200 docs each, no gaps, single primary shard/no replicas so no t-digest merge artifacts) shows one unambiguous outlier bucket:
+   - Baseline buckets: p50 ~64-88ms, p90 ~150-334ms, p99 ~480-1715ms
+   - 2026-08-03T01:00:00Z bucket: p50=369.6ms, p90=904.1ms, p99=1798.3ms, avg=455.6ms
+   The whole distribution shifted, not just the tail, which is what pointed at a composition change rather than a few slow outliers.
+
+2. Breaking the flagged bucket down by endpoint:
+   - /api/checkout: 172 of 200 docs (86%), p50=421ms, p90=951ms, p99=1844ms
+   - /api/cart: 14 docs, p50=55ms
+   - /api/profile: 8 docs, p50=95ms
+   - /api/search: 6 docs, p50=59ms
+
+3. Baseline mix (the other 7000 docs, all 35 other buckets): /api/checkout is consistently 9.2% of traffic (647/7000), running 12-27 requests per 200-doc bucket in literally every other bucket, including the ones immediately before (00:50 -> 27) and after (01:10 -> 16) the flagged one. In the flagged bucket alone it jumps to 172 -- a 7-14x spike in share that appears in exactly one bucket and reverts immediately.
+
+4. Critically, /api/checkout's own latency in the flagged bucket (p50=421ms, p90=951ms, p99=1844ms) is statistically the same as /api/checkout's own baseline latency (p50=452ms, p90=955ms, p99=1815ms) -- if anything marginally lower. Cart/profile/search also perform normally for their (small) sample in that bucket. Excluding checkout, the remaining 28 requests in the flagged bucket have p50=62ms, p90=162ms, p99=230ms -- indistinguishable from baseline.
+
+5. Total request volume is pinned at exactly 200 docs in every single 10-minute bucket across the full 6-hour index, including the flagged one. So this wasn't extra load arriving on top of normal traffic -- cart/profile/search calls were displaced and checkout calls took their place, at a constant total rate.
+
+6. Ingestion sanity check: @timestamp vs ingested_at lag for the flagged bucket's documents is a normal 2-5 seconds, spread continuously through the window (not batch-loaded with a single ingest time), so the timestamps are not a backfill/relabeling artifact -- the requests really were logged in real time during that window.
+
+Conclusion
+
+Nothing in the system got slower. /api/checkout has always been ~5-7x slower than cart/profile/search (payment/inventory-bound endpoint, consistent at baseline too), and it normally supplies ~9% of traffic. For one 10-minute window, checkout's share of the traffic mix spiked to 86% while its own response times stayed flat, which mechanically drags the pooled, unconditioned p99 up even though no request got served any slower than usual. This is a population/mix-shift artifact of measuring one blended "latency_ms" percentile across heterogeneous endpoints rather than a genuine performance regression. The data available (no host/client/trace-id field) doesn't show *why* the mix shifted -- worth asking whoever owns checkout traffic whether something (a promo, a batch/retry job, a routing change) sent a burst of checkout-only calls in that window -- but that's a traffic-composition question, not a latency regression to chase in the storefront service itself.
+
+VERDICT: ARTIFACT
+CAUSE: traffic-mix shift toward the inherently slower /api/checkout endpoint (86% of requests vs its normal ~9%), with each endpoint's own latency unchanged from baseline

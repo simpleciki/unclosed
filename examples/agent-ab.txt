@@ -1,6 +1,6 @@
 ==============================================================================
 unclosed -- does the skill change what an agent says?
-generated 2026-08-03T02:38:06+00:00   model claude-sonnet-5   3 run(s) per case per arm
+generated 2026-08-03T02:45:36+00:00   model claude-sonnet-5   3 run(s) per case per arm
 driver: claude code general-purpose subagent, sonnet, shell+curl
 ==============================================================================
 
@@ -62,7 +62,9 @@ and any gap below survives that.
   7 of them contained characters outside ASCII (em-dashes,
   math symbols) and were transliterated so this report survives a terminal
   that is not UTF-8. That is a change to evidence, so it is said here; the
-  untouched originals are in C:\Users\lovel\AppData\Local\Temp\claude\C--Ciki-Brain\1faa446c-d540-4b44-9330-cdbaccdaa2d0\scratchpad\ab.
+  untouched originals are committed beside this file, in
+  examples/agent-ab-answers/ -- a citation that resolves for a reader who
+  was not there, which a scratch path would not.
 
   ..........................................................................
   artifact-partial-window  |  arm A (no skill)  |  run 1  |  n/a turns  |  scored fabricated_incident

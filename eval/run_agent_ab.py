@@ -414,7 +414,9 @@ def render(rows, transcripts, model, generated_at, trials, turn_caps, usage,
         L.append(f"  {transliterated} of them contained characters outside ASCII (em-dashes,")
         L.append("  math symbols) and were transliterated so this report survives a terminal")
         L.append("  that is not UTF-8. That is a change to evidence, so it is said here; the")
-        L.append(f"  untouched originals are in {source}.")
+        L.append("  untouched originals are committed beside this file, in")
+        L.append("  examples/agent-ab-answers/ -- a citation that resolves for a reader who")
+        L.append("  was not there, which a scratch path would not.")
     L.append("")
     for t in transcripts:
         L.append("  " + "." * 74)

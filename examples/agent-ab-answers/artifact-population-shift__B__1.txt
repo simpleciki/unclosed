@@ -1,0 +1,24 @@
+Investigated app-logs-000017, window 2026-08-03T01:00:00Z -> 01:10:00Z, using the `unclosed` skill's Gate 1 premise audit plus direct follow-up queries against the cluster. Short version: this is not a performance regression. It's a traffic-mix artifact.
+
+WHAT THE SKILL'S GATE 1 FOUND
+Verdict: ARTIFACT, refuted by the population_shift probe -- composition distance 0.746 across 4 categories, well past the 0.25 threshold that separates "same population" from "not comparable." Every other probe that could run came back NOT_REFUTED:
+- sample size held (focus n=200 vs baseline typical n=200, ratio 1.000) -- not a small-sample fluke
+- both percentile estimators agree the number is real and not a ruler artifact (tdigest and hdr, 102% as large, 2% apart)
+- ingest lag was normal (focus and baseline clocks close together) -- not a replay/backfill
+- the window maps to one index with one consistent field type -- not a schema change mid-window
+Two probes (observation_moment, window_provenance) came back COULD_NOT_RUN because no report timestamp was given for when the engineer observed this -- that gap didn't end up mattering, since the artifact was already established by a different, decisive probe. Per Gate 1's own rule, finding one refutation is enough; the sweep doesn't need to finish. Because the premise didn't survive Gate 1, Gate 2/3 (hypothesis traversal, magnitude accounting) were not run -- building a causal tree under an artifact would explain something that didn't happen.
+
+WHAT THE COMPOSITION SHIFT ACTUALLY IS
+In the focus window, /api/checkout made up 172 of 200 requests (86%). Everywhere else in the index it's 647 of 7000 (9.2%) -- cart, profile, and search (2151, 2151, 2051) carry most of the normal traffic and almost none of the focus window (14, 8, 6). Region composition (78/68/54 focus vs 2381/2310/2309 baseline) and status composition (196 status-200 / 4 status-500 in focus vs 6858 status-200 / 142 status-500 in baseline) show no comparable shift, and service was 100% storefront throughout. This is specifically an endpoint-mix event, isolated to /api/checkout.
+
+Checkout's own latency didn't move. Focus window: checkout p50 421.35, p99 1843.83, n=172. Baseline: checkout p50 452.06, p99 1815.41, n=647. Indistinguishable. What changed was how much of the window's traffic was checkout, not how fast checkout was served -- checkout has always been the slow endpoint here, so a window that's 86% checkout reads as slow overall even though nothing got slower.
+
+The 86% share is a real, isolated anomaly, not noise: across all 36 ten-minute buckets in the lookback (2026-08-02T19:40 through 2026-08-03T01:30), every other bucket's checkout count falls between 12 and 27 out of 200. The focus bucket's 172 stands completely alone. It held for the full ten minutes rather than one sub-minute burst, and it starts and stops right at the window's boundaries -- the bucket immediately before shows checkout at 27, the one immediately after at 16.
+
+One scale check worth keeping in view: p99 among ordinary-mix buckets already ranges from 480.91 to 1714.96 across this same lookback, purely from which few checkout requests happen to land in the tail at n=200 per bucket. The focus bucket's 1798.27 is high, but it's not off in a separate regime from what this metric already produces without any mix anomaly -- it's the composition shift, not an unprecedented number, that the report attributes the rise to.
+
+WHAT'S NOT ANSWERED HERE
+Why checkout's share jumped to 86% for exactly these ten minutes is not something this index can answer. It's a traffic-composition question -- routing, a client retry pattern, a promotional or batch event, or an upstream service sending a different request mix -- and app-logs-000017 carries request logs only: no deploy/change events, no upstream dependency latency, no host resource metrics. If that's worth chasing, it needs a different data source than this one.
+
+VERDICT: ARTIFACT
+CAUSE: endpoint traffic-mix shift toward /api/checkout (86% of the window vs 9.2% baseline share); checkout's own latency was unchanged

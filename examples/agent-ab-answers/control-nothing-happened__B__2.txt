@@ -1,0 +1,18 @@
+On-call reply: app-logs-000042, p99 latency_ms, last 6 hours
+
+Short answer: there's nothing here to page on. I ran this down two different ways and neither supports a real regression.
+
+The page named no moment, only "somewhere in the last six hours," so any window has to be self-selected -- and a self-selected window can never be certified SUBSTANTIATED, only refuted or left open.
+
+First scan (no window given, lookback 6h) picked 2026-08-02T20:10:00 -> 2026-08-02T20:20:00.000Z: p99 561.26 vs baseline 332.6, a 1.7x jump. Gate 1 verdict: ARTIFACT, refuted by sample_size_collapse -- focus n=34 vs a typical n=200 (ratio 0.170). That bucket sits at the very start of the dataset; at the moment of that scan the trailing-6h boundary sliced through it, so most of its documents were out of view. Re-running that same 10-minute window with a wider lookback (so it is read whole) gives n=200 and p99 298.64 vs baseline 332.60 -- actually below baseline, not a spike at all. So the 1.7x reading came from the missing documents, not a system event.
+
+A second scan minutes later (same command, nothing changed except wall-clock time) landed on a different bucket, 2026-08-02T21:20:00.000Z -> 2026-08-02T21:30:00.000Z: p99 443.93 vs baseline 332.05 (n=200 both sides, no sample-size collapse this time). Gate 1: UNDECIDABLE -- nothing refuted it, but window_provenance and observation_moment both COULD_NOT_RUN because there is still no named moment behind this window either. Gate 2 walked endpoint/region/service/status: only endpoint stood out against the concentration null (/api/checkout, p=0.030), but removing that endpoint and re-measuring made the window's p99 worse, not better (-41.74) -- so it does not carry the rise. Region, service, and status were inconclusive on too little data. Deploy, upstream-dependency, and host-resource causes are not visible in a request-log index at all. Gate 3: UNDER_ACCOUNTED, -41.74 accounted of +111.88 observed, +153.62 unexplained (137.3% of the effect), tolerance 20%. The chain does not close.
+
+Querying the full set of 10-minute buckets across the current trailing 6h directly (35 buckets returned) shows p99 ranging from 243.98 to 443.93 with no visible trend; 2026-08-02T21:20:00.000Z's 443.93 is the highest of the 35, with 2026-08-02T23:20:00.000Z (423.13), 2026-08-02T22:30:00.000Z (387.76), 2026-08-02T23:30:00.000Z (384.05) and 2026-08-03T01:20:00.000Z (382.34) close behind it -- ordinary bucket-to-bucket spread in a metric estimated from 200 points, not a step change.
+
+Nothing in this index shows a confirmed, closed regression. The only candidate this process could concretely test came back as a measurement artifact of the query boundary, not the system, and the current worst-of-the-window candidate has no cause that closes, with its one lead running backward. Whichever bucket is worst on a six-hour scan will always be found, and neither candidate this scan produced supports telling anyone a real regression happened. Ask whoever paged for the dashboard/alert and the exact timestamp it fired on; without that, "somewhere in the last six hours" cannot be checked against anything, and a fresh scan minutes from now can hand back a third, different bucket.
+
+This summary was checked against the underlying gate reports with the skill's own provenance_guard.py and returned GROUNDED -- every figure above is sourced from a gate run, and none of the skill's refused phrasings were used.
+
+VERDICT: ARTIFACT
+CAUSE: self-selected worst-of-window bucket, no moment reported -- the only concretely testable candidate was a boundary-truncated small sample, not a real change

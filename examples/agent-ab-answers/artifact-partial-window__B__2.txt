@@ -1,0 +1,28 @@
+On-call summary: app-logs-000031, window 2026-08-03T01:30:00.000Z -> 2026-08-03T01:40:00Z
+
+Short version: the page fired on incomplete data, but the underlying latency rise is real, not a measurement artifact. The specific driver is not established from this index.
+
+Two things are true at once here, and they matter for different reasons.
+
+1) The alert itself was premature. It was filed at 2026-08-03T01:32:00Z, which is only 20% into the 10-minute bucket it was judging (below the 90% threshold this skill requires before trusting a reading). Auditing the report exactly as filed returns VERDICT: ARTIFACT, and the only refutation that fires is observation_moment: "the reporter saw a partial window, and the data audited here is not the data that triggered the report." Every other check on that same run (unanchored_report, window_provenance, estimator_choice, sample_size_collapse, population_shift, clock_semantics, measurement_continuity) came back NOT_REFUTED. So as a matter of process, this alert should not have fired yet -- it was reading a bucket that was still filling in. Worth fixing at the alerting layer (wait for the bucket to close, or evaluate on a trailing window) independent of anything below.
+
+2) The bucket has since closed, and re-running the same premise audit against the complete window (reported_at 2026-08-03T02:21:58Z, 520% elapsed) flips the verdict to SUBSTANTIATED: every one of the eight refutation attempts ran and none knocked the observation down.
+   - Volume held: focus n=200 vs baseline typical n=200 (ratio 1.000) -- this is not a small-sample effect.
+   - Two independent percentile estimators agree: tdigest sees +1594.39, hdr sees +1526.08 (96% as large; they disagree about size by 4%, not about whether it happened).
+   - Population composition is stable: composition distance 0.082 across 4 categories.
+   - Both clocks agree: ingest lag p50 focus 2.3s vs baseline 2.2s (1.0x) -- not a replay or backfill.
+   - One consistent index and field mapping throughout (latency_ms as float).
+   - p99 moved from 332.33 to 1926.72 (5.8x).
+
+I also pulled the minute-by-minute breakdown inside the window directly from the cluster, specifically to check whether the elevation was just an artifact of the handful of documents the alert could have seen in its first two minutes. It isn't: every one-minute bucket across the full window is elevated, including the minutes of data that did not exist yet at 2026-08-03T01:32:00Z. Minute-level p50 runs from about 354.82 to 512.66 across the window -- 512.66 in the window's first minute (n=22), 436.25 in the middle of the window (n=15), 438.04 in the window's last minute (n=16) -- against a p50 around 75.22 to 79.03 in the normal 10-minute buckets immediately before and after (2026-08-03T01:20:00.000Z and 2026-08-03T01:40:00.000Z). Even the 46 documents that existed by 2026-08-03T01:32:00Z -- the actual data the alert had -- already showed p50 509.99, so the partial sample it fired on was not misleading; the rest of the window did not revert toward baseline.
+
+The traversal (Gate 2) also confirms this is a broad, whole-distribution shift rather than a tail-only event: p50 moved 79.29 -> 447.37 (+368.08), and the median carries 23% of the p99 move.
+
+What's not established: which endpoint, region, service, or status code the rise is concentrated in. The two closest candidates were /api/search (n=36, +98.16 beyond its own normal gap) and region us-west-2 (n=54, +89.28 beyond its own normal gap), but neither stood out from the null the traversal builds by redrawing the window at one level (p=0.127 and p=0.075) -- elevated, not established. service has only one value in this index (storefront), so nothing to compare there. status can't be compared either (200: n=196 vs 4; 500: n=4 vs 196 -- short of the 30 needed on both sides). Three hypotheses this request-log index cannot answer at all -- a deploy or config change, an upstream dependency getting slower, the host or container losing resources -- were not walked, because they need data (deploy/change events, dependency call spans, node CPU/memory/disk) that isn't in this index.
+
+So: GATE 2: NOT CLOSED, and MAGNITUDE: NOT_QUANTIFIED -- observed effect +1594.39, accounted for +0.00, unexplained +1594.39 (+100.0% of the effect), tolerance 20%. Nothing was confirmed that explains the size of the rise, so there's nothing yet to size against it.
+
+Recommended next steps: pull the deploy/change log around 2026-08-03T01:30:00.000Z for the storefront service, check dependency/APM traces for that window, and check host/container CPU, memory, and disk for that period -- none of that lives in this log index. If you want to chase the two inconclusive leads anyway, /api/search and us-west-2 are the closest (not confirmed) candidates.
+
+VERDICT: REAL
+CAUSE: NONE

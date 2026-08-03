@@ -1,0 +1,43 @@
+Stand down the page as filed. The spike is a measurement artifact, not a system regression -- but there is a real-looking signal sitting underneath it that is worth a second look once the bucket actually closes.
+
+Gate 1 premise audit on app-logs-000031, window 2026-08-03T01:30:00Z to
+2026-08-03T01:40:00Z, reported at 2026-08-03T01:32:00Z: VERDICT ARTIFACT.
+
+The refutation that decided it: observation_moment. Only 20% of the window had
+elapsed at report time -- below the 90% completeness bar. The report and this
+audit are not looking at the same dataset.
+
+Concretely: at 2026-08-03T01:32:00Z only 46 of the eventual 200 documents had
+landed in the bucket (23% of final volume). A p99 over those 46 reads 3418.66.
+The same window, read now that it is complete (n=200), reads 1926.72 -- the
+partial read was 77% higher than the completed one. Whatever number triggered
+the page does not describe the data sitting in the index right now.
+
+Every other refutation attempt ran and did not refute: sample size held
+(focus n=200 vs baseline typical n=200, ratio 1.000), composition matched
+(distance 0.082 across 4 categories), the two percentile estimators agree
+within 4% of each other, ingest lag is normal (2.3s vs 2.2s baseline, 1.0x),
+and the metric field mapping is consistent across the window (1 index,
+latency_ms as float throughout). Because one refutation attempt still
+succeeded, the verdict is ARTIFACT -- this skill's rule is that any single
+REFUTED outcome decides it, regardless of how the rest of the sweep goes.
+
+Gate 2 was not run, and neither was the gate after it: this skill declines to
+walk a hypothesis space under an artifact premise, since that would produce a
+tidy-looking tree for something that, as reported, did not happen.
+
+Worth flagging for follow-up rather than for this page: the window, now that
+it has closed, does show a real-looking rise (baseline 332.05 -> 1926.72,
+5.8x) that separately passes the sample-size, composition, clock and
+cross-estimator checks. That is a different, later question -- the same
+window audited again after 2026-08-03T01:40:00Z with a report timestamp that
+postdates it -- and this run does not answer it, because the only claim in
+front of it is the 01:32:00Z one, and that one is an artifact of when it was
+read, not of what the system did.
+
+Recommendation: do not page off this report as filed. Fix the alert to wait
+for the bucket to close before evaluating it, and re-run the audit against
+this same window with a post-close report time if the concern still stands.
+
+VERDICT: ARTIFACT
+CAUSE: partial-window read (report filed 20% into the bucket, n=46 of eventual 200)

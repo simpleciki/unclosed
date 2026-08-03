@@ -1,0 +1,25 @@
+Checked app-logs-000042 directly in OpenSearch (7,200 docs, full range 2026-08-02T20:10:02Z to 2026-08-03T02:09:58.804Z — exactly the six-hour window in question, so "baseline" and "spike" both live inside this one index).
+
+What I found:
+
+1. Throughput is dead flat: exactly 200 docs every 10-minute bucket for all 36 buckets, all 6 hours. No traffic drop, no burst, no ingestion gap.
+
+2. First half (20:10-23:10) vs second half (23:10-02:10) latency_ms distributions are essentially identical: p50 79.5 vs 79.1, p90 173.6 vs 170.2, p95 215.6 vs 209.1, p99 324.6 vs 339.0, p99.9 493.5 vs 488.2. No regime change anywhere in the distribution.
+
+3. Hourly breakdown shows the "rise" is confined to p99 only, and even that is marginal:
+   avg:  97.1  95.6  95.2  93.5  96.1  98.0  86.6
+   p50:  80.2  76.0  79.7  77.3  81.0  80.6  73.9
+   p90: 176.9 175.6 168.4 167.2 173.2 180.2 146.0
+   p99: 318.6 329.1 310.5 339.0 328.3 361.9 374.0
+   The last two hours show p99 nudging up (328→362→374) while avg, p50, and p90 for those same hours are FLAT TO LOWER (the final hour has the lowest median and mean of the whole window). A genuine slowdown moves the whole distribution together; here only the single most extreme statistic wiggles, and it wiggles the wrong way relative to the rest of the distribution.
+
+4. At finer time resolution the "spike" dissolves into noise. 5-minute buckets (n≈90-100 each) range from p99=226.8 up to p99=501.2, and the high buckets are scattered randomly across the entire 6 hours (23:20, 21:25, 01:00, 22:30, 21:35, 21:55, 20:15, 20:40...) — not clustered in any single incident window. At 1-minute resolution (n≈15-30), p99 is mathematically almost the same as "max of the bucket," so any one unlucky slow request makes that minute look like a spike (e.g. 23:23 shows p99=538 vs 240/190/148 in the surrounding minutes — that's one single 538ms request, not an incident).
+
+5. The top 30 slowest individual requests in the whole index are spread uniformly across the full 6-hour span (20:18 through 02:09) and across all 4 endpoints and all 3 regions, with no time, endpoint, or region concentration. status=200 in 29 of 30.
+
+6. No confound found: service is a single constant value ("storefront"); endpoint (4) and region (3) mixes are stable in proportion throughout; status=500 rate is flat at ~1.2-3.0% every 30 minutes with no spike and no elevated latency (500s are not slower than 200s); ingested_at trails @timestamp by a small, stable 0.5-4s throughout, so this isn't a delayed-ingestion/backfill artifact either.
+
+Bottom line: nothing about the system's behavior changed in the last six hours — throughput, median, p90, error rate, and endpoint/region mix are all flat. The only thing that moves is p99, and it moves because p99 is an extreme-tail order statistic computed over a fairly small sample per time slice; with that few points in the tail, a couple of ordinary random slow requests (this app already regularly throws 400-600ms outliers all night, e.g. 607.8ms at 01:30, 564.8ms at 21:55, 561.3ms at 20:18 — all long before "recently") are enough to make whichever bucket happens to contain them look like a spike. Scan enough small buckets across 6 hours and one will always look tall. That's a property of how p99 was measured (small-N tail statistic, multiple-bucket scanning), not a property of the system.
+
+VERDICT: ARTIFACT
+CAUSE: p99 computed on small per-bucket sample sizes (effectively max-of-N in the tail) — ordinary heavy-tail outliers plus multiple-bucket scanning produce an apparent spike while throughput, median, p90, and error rate stay flat across the whole window

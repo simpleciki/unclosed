@@ -1,0 +1,26 @@
+This is a real latency spike, not a measurement artifact.
+
+What I checked on the cluster (app-logs-000031, 7200 docs spanning 2026-08-02T20:10:02Z to 2026-08-03T02:09:58Z, steady ~20 docs/min):
+
+1. Window completeness: the 01:30:00Z-01:40:00Z bucket has all 200 docs (15-24 per minute, every one of the 10 minutes populated). I checked the minutes on both sides (01:25-01:44) and there's no gap or burst at the boundary — this is not a partially-filled/in-flight bucket, the data is complete.
+
+2. Whole-distribution shift, not just a tail artifact: bucket vs. baseline (rest of index, 7000 docs) —
+   - p50: 447ms vs 79ms
+   - p90: 1034ms vs 172ms
+   - p99: 1927ms vs 328ms
+   - max: 3419ms vs 565ms
+   - avg: 546ms vs 96ms
+   Every percentile moved together by roughly 5-6x. A small-sample/partial-window artifact would show up as noise concentrated in the extreme tail (p99/max) while the median stayed put — that's not what happened here; the median itself jumped 5.6x.
+
+3. Isolated in time: I ran a 10-minute histogram over the full 6-hour index (36 buckets). Every other bucket has p99 in the 244-444ms range with max under ~565ms. Only the 01:30:00Z bucket is an outlier, and the very next bucket (01:40:00Z) is back to normal (p99=333ms). Sharp onset, sharp recovery — consistent with a real transient incident, not a drift or a one-off bad sample.
+
+4. Uniform across dimensions (rules out mix-shift / Simpson's-paradox artifacts): inside the window, all 4 endpoints are elevated together (/api/profile avg 553ms, /api/checkout 583ms, /api/cart 471ms, /api/search 570ms — baseline is a flat ~95ms across all four), and all 3 regions are elevated together (us-east-1 494ms, eu-central-1 563ms, us-west-2 599ms — baseline is a flat ~94-98ms across all three). There's only one service in this index, so it's not a service-composition change either. This looks like a shared/systemic slowdown, not one bad endpoint or region getting over-sampled.
+
+5. Not error-driven: status-500 rate is 4/200 (2.0%) in the window vs 142/7000 (2.0%) baseline — identical, and the 500s aren't even the slow requests (avg 423ms vs 200s' avg 548ms). So this isn't "timeouts inflating the tail."
+
+6. Clock-choice sanity check: this index has both `@timestamp` (event time) and `ingested_at` (arrival time, lagging by ~1.7-3.3s). Re-running the bucket using `ingested_at` instead of `@timestamp` gives essentially the same numbers (p50 431ms, p99 1926.72ms — same p99 to the decimal). So the result isn't an artifact of which clock or which bucket boundary was used.
+
+Bottom line: the 01:30:00Z-01:40:00Z bucket really did get slow — uniformly, across every endpoint and every region, for exactly ten minutes, then it fully recovered. Nothing about the measurement (sample size, tail-only movement, mix shift, error correlation, or clock choice) explains it away. The index has no host/infra/dependency field, so I can't name the downstream cause from this data alone, but the pattern (simultaneous, uniform, cluster-wide, error-rate-flat) is the signature of a shared dependency or resource contention event rather than a code-level regression in one endpoint.
+
+VERDICT: REAL
+CAUSE: uniform ~5-6x latency increase across all endpoints and regions for the full 10-minute window, sharp onset/recovery, consistent with a shared downstream dependency or resource-contention incident

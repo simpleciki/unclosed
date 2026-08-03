@@ -1,0 +1,21 @@
+Checked app-logs-000042 directly (7,200 docs, spanning the full ~6h index: 2026-08-02T20:10:02Z to 2026-08-03T02:09:58Z — this index IS "the last six hours"). Short version: there's no real p99 spike anywhere in it. What looks like a spike is an artifact of computing p99 over too few samples per time bucket.
+
+Evidence:
+
+1. Median (p50) is flat the whole window: 74-88ms in every 15-min bucket, no trend, no step change, no drift toward the end. If the system had genuinely degraded, the bulk of requests would show it — they don't.
+
+2. p99 gets noisier as the bucket gets smaller, exactly like a small-sample estimation problem, not a real event:
+   - 1-hour buckets (n≈1000-1200): p99 = 310-374ms, a tight band, all hours included.
+   - 15-min buckets (n≈290-310): p99 = 251-390ms.
+   - 5-min buckets (n≈90-113): p99 = 226-501ms.
+   - 1-min buckets (n≈11-29): p99 = 128-538ms — at this resolution p99 is basically just "the highest 1-2 samples in a minute," which is why it swings wildly minute to minute even inside a totally ordinary stretch (checked 23:10-23:29 in detail: p99 bounces from 128 to 538 to 199 with no pattern).
+   This is the signature of estimating an extreme percentile off a heavy-tailed distribution with a small n — the estimator itself is unstable, independent of whether anything happened.
+
+3. The individual highest-latency events (top 30 by latency_ms, up to 607ms) are spread essentially uniformly across the entire 6 hours — 20:18, 20:36, 20:40, 21:04, 21:23-21:55 (several), 22:02-22:52 (several), 23:23-23:37, 00:04-00:56, 01:04-01:55 (several), 02:00, 02:09. No clustering in any sub-window. A genuine incident (bad deploy, dependency degradation, GC storm, DB slowdown) would bunch the slow requests together in time; these don't.
+
+4. No dimension explains a localized rise: all 4 endpoints and all 3 regions appear throughout the slow-tail sample; status=500 errors (146 total, ~2%) are spread evenly across every 15-min bucket (3-10 per bucket, no burst); per-endpoint p99 differs by endpoint identity (/api/search runs hottest at 383ms, /api/cart coolest at 301ms) but that's a constant structural difference present the whole 6 hours, not something that turned on partway through.
+
+Conclusion: if someone eyeballed a dashboard on a short refresh window (1-5 min buckets are common), they'd see p99 jump between ~150ms and ~500+ on totally ordinary traffic just from which 20-100 requests happened to land in that window — that's what got reported as "a spike." The underlying system (median latency, error rate, per-endpoint behavior) never changed. This is a measurement artifact, not an incident. Nothing to roll back, no deploy to blame, no dependency to page anyone else about — recommend widening the dashboard's aggregation window (or switching to p95/hourly p99) so this stops false-paging.
+
+VERDICT: ARTIFACT
+CAUSE: p99 computed on small per-bucket sample sizes against a stationary heavy-tailed latency distribution (percentile-estimator noise, not a real system change)

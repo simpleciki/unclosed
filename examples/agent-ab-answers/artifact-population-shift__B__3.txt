@@ -1,0 +1,73 @@
+Short answer: this is not a real latency regression. It is a measurement
+artifact: the number moved because the traffic mix in that one window
+shifted, not because anything got slower.
+
+WHAT WAS CHECKED
+
+Ran the `unclosed` skill's premise audit (Gate 1) against
+http://127.0.0.1:9250/app-logs-000017 for the reported window
+(2026-08-03T01:00:00Z .. 01:10:00Z, n=200) against the rest of the index as
+baseline (n=7000, typical bucket n=200). Result: VERDICT: ARTIFACT.
+
+- latency_ms p99: 1798.27 in the focus window vs 903.65 baseline (2.0x).
+- Not a sample-size collapse: focus n=200 vs baseline typical n=200 (ratio
+  1.000) -- volume held.
+- Not an estimator artifact: tdigest (+894.62) and hdr (+909.00) agree on the
+  size of the jump to within 2% (102% as large).
+- Not an ingest/replay artifact: ingest-lag clocks agree (1.0x).
+- Not a schema/ruler change: mapping is consistent across the window (1
+  index, `latency_ms` mapped as float throughout).
+- Population composition: REFUTED. Composition distance 0.746 across 4
+  categories, exceeding the 0.25 threshold -- the focus window and the
+  baseline are not comparable populations. This single refutation is what
+  produced the ARTIFACT verdict.
+
+WHY: THE TRAFFIC MIX, NOT THE SYSTEM, MOVED
+
+Direct follow-up queries against the same window show the population shift
+concretely. Endpoint mix in the focus window was 86.0% /api/checkout (172 of
+200 requests), against /api/checkout's normal 9.2% share (647 of 7000) in
+the baseline -- roughly 9.3x its usual share. /api/checkout has always been
+the slowest endpoint by a wide margin (baseline p50 452.06 vs 70.00 for
+/api/cart, 67.95 for /api/profile, 68.25 for /api/search).
+
+Checked against its own baseline, /api/checkout itself did not get slower:
+p99 1843.83 vs 1815.41 (+1.6%), p50 421.35 vs 452.06 (lower), mean 517.30 vs
+526.87 (lower). No endpoint's own latency rose.
+
+Across the full 36-bucket, 10-minute series covering the whole index
+(2026-08-02T19:40:00Z .. 2026-08-03T01:40:00Z), every bucket holds 200
+documents, and /api/checkout's share stays between 12 and 27 documents in
+every bucket except this one, where it jumps to 172 -- a one-bucket outlier
+in composition, not a trend. The reported bucket's p99 (1798.27) is the
+highest in the series; the second-highest, 1714.96, sits in a bucket with an
+ordinary 9.5% checkout share -- p99 tracks with /api/checkout's share
+throughout the series, not with any endpoint's own performance.
+
+In short: a normally-9%-of-traffic, inherently slow endpoint briefly made up
+86% of the requests in this one bucket. Hold the endpoint constant and
+compare its own before/after numbers, and nothing changed. That is exactly
+the shape the population_shift check exists to catch, and it is why the
+causal traversal (Gate 2/3) was not run: building a hypothesis tree under an
+artifact premise would only produce a tidy explanation for something that
+did not happen.
+
+OPEN GAP (does not change the verdict)
+
+No report timestamp was supplied for when this was flagged, so two
+provenance checks -- observation_moment (was the window already complete
+when it was reported) and window_provenance (was the window named before or
+after the data was examined) -- could not run. A single refutation is
+decisive regardless of what else is unverified, so this gap does not affect
+today's verdict; supplying a report timestamp next time would let the audit
+fully clear (or fully catch) the next one on its own.
+
+NOT ANSWERED BY THIS DATA
+
+Why /api/checkout's share spiked to 86.0% in that one 10-minute window is a
+traffic-composition question, separate from the latency question asked
+here. A request log carries no deploy, client, or upstream-dependency signal
+to answer it -- if it matters operationally, it needs a different source.
+
+VERDICT: ARTIFACT
+CAUSE: traffic-mix shift toward the already-slow /api/checkout endpoint (population_shift)
