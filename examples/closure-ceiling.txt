@@ -62,10 +62,49 @@ opposite directions, and the current resolution is that nothing closes.
 That is not a defect in any one line of code. It is a choice about what
 RULED_OUT should mean: "at the middle of the null" (what it means now, so an
 innocent dimension clears half the time) or "not distinguishable from the null"
-(p > alpha, so an innocent dimension clears 95% of the time, and closure with
-three others goes from 12.5% to 86%). The second keeps all three reporting bands
-and changes only which of them blocks a chain. Neither is written here, because
-picking one is a decision about what this tool is for, not a defect to repair.
+(p > alpha). The second keeps all three reporting bands and changes only which
+of them blocks a chain.
+
+The second was then measured rather than argued -- the definition swapped
+locally, the same pre-registered runs repeated, the swap reverted, and nothing
+committed:
+
+    RULED_OUT = p > alpha      900ms, 5 seeds -> CLOSED 3/5   control 0/5
+                               160ms, 3 seeds -> CLOSED 1/3   control 0/3
+                               ---------------------------------------------
+                               4 of 8 closed, 0 of 8 controls
+
+So the criteria are reachable. The algebra above had predicted about 86% and was
+wrong: it assumed the other dimensions were innocent, and a real rise leaks into
+them until some of them genuinely confirm.
+
+The four that did not close name two further blockers, and neither is
+statistical:
+
+  seed 4102   `service` CONFIRMED and was then downgraded to INCONCLUSIVE by the
+              single-carrier rule -- at most one dimension may carry magnitude,
+              and the others are recorded as still standing. INCONCLUSIVE is in
+              the open set, so a branch demoted for magnitude hygiene blocks the
+              chain exactly as a branch nobody could settle does. "We chose not
+              to credit this" and "this is still standing" are not the same
+              statement and share a state.
+
+  seed 4103   magnitude NOT_QUANTIFIED at +1927.69 accounted of +1909.04
+              observed -- the sizes agree to 1%, and the verdict is not about
+              them. A confirmed *explanatory* branch carried no number, which
+              short-circuits the arithmetic. The likely one is a companion
+              branch: an event index can report that a deploy landed and cannot
+              report how many milliseconds it explains, so those nodes confirm
+              with no magnitude by construction. As written, a run where a
+              deploy really did land inside the window can never close -- finding
+              the most plausible cause is what prevents it.
+
+              Stated as a candidate, not a finding: the other possibility is a
+              concentration node confirming while its removal left nothing to
+              measure against. The two were not separated.
+
+None of the three is implemented as a change. Picking is a decision about what
+this tool is for, not a defect to repair.
 
 WHAT THIS DOES NOT SHOW
 -----------------------

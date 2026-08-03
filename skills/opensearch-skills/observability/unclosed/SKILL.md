@@ -423,9 +423,28 @@ to the declared catalog is another coin that has to land the same way, so naming
 more of them — the thing this skill argues for — makes closure geometrically less
 likely. Whether that is right depends on what `RULED_OUT` should mean: *at the
 middle of the null*, as now, or *not distinguishable from it* (p > alpha), which
-would keep all three reporting bands and take the same ceiling to about 86%. The
-second is not implemented, because choosing is a decision about what the tool is
-for and not a defect to repair quietly.
+keeps all three reporting bands and changes only which of them blocks a chain.
+
+The second was measured rather than argued, on the same pre-registered corpus
+with the definition swapped and reverted: **4 of 8 runs closed** (3 of 5 at a
+planted median of 900ms, 1 of 3 at 160ms), against 0 of 8 in the control. The
+algebra had predicted about 86% and was wrong, for a reason worth keeping: it
+assumed the other dimensions were innocent, and a real rise leaks into them until
+some genuinely confirm. Two further blockers surfaced in the four that did not
+close, and both are structural rather than statistical:
+
+- a dimension that **confirms and is then downgraded** by the single-carrier rule
+  lands in `INCONCLUSIVE`, which is in the open set. The rule exists to stop one
+  effect being counted twice, and parking the branch there conflates *we chose
+  not to credit this* with *this is still standing*
+- a **confirmed external branch carries no magnitude**, so Gate 3 reports
+  `NOT_QUANTIFIED`. An event index can say a deploy landed; it cannot say how
+  many milliseconds the deploy explains. As written, a run where a deploy really
+  did land in the window can never close — finding the most plausible cause is
+  what stops it
+
+Neither the definition swap nor a fix for those two is implemented. Choosing is a
+decision about what this tool is for, not a defect to repair quietly.
 
 **A rise that is multiplicative rather than additive will still read as
 concentrated.** Each group's normal is subtracted in milliseconds, because the
