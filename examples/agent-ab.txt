@@ -1,6 +1,6 @@
 ==============================================================================
 unclosed -- does the skill change what an agent says?
-generated 2026-08-03T01:56:48+00:00   model claude-sonnet-5   3 run(s) per case per arm
+generated 2026-08-03T02:38:06+00:00   model claude-sonnet-5   3 run(s) per case per arm
 driver: claude code general-purpose subagent, sonnet, shell+curl
 ==============================================================================
 
@@ -20,10 +20,23 @@ and any gap below survives that.
 ------------------------------------------------------------------------------
 
   case                         arm           correct  what the rest were
+  artifact-partial-window      no skill          0/3  fabricated_incident x3
+  artifact-partial-window      with skill        2/3  substantiated_a_non_event x1
   artifact-population-shift    no skill          3/3  -
   artifact-population-shift    with skill        3/3  -
+  control-nothing-happened     no skill          3/3  -
+  control-nothing-happened     with skill        3/3  -
+  [artifact-partial-window]
+    NOT SCOREABLE under this contract, and left in rather than dropped. The
+    corpus labels the premise unreal because the report was filed 20% into the
+    bucket -- a real observation_moment failure: read at report time the
+    window held 46 of its eventual 200 documents and p99 read 3418.66 against
+    1926.72 once closed, a 77% overstatement. But underneath that inflated
+    number a genuine 5.8x rise survives completion, and this contract defines
+    REAL as 'a genuine change in how the system performed'. Both answers are
+    defensible, so neither column below is evidence about either arm.
 
-  ON THE INCIDENTS THAT DID NOT HAPPEN
+  ON THE INCIDENTS THAT DID NOT HAPPEN  (unscoreable cases excluded)
     no skill     substantiated a non-event in 0 of 3 runs
     with skill   substantiated a non-event in 0 of 3 runs
 
@@ -36,19 +49,189 @@ and any gap below survives that.
   saying 'caused by'. It is reported because it is the same lexicon the
   skill enforces on its own narration, applied to both arms unchanged.
 
-    no skill     1 of 3 runs
+    no skill     2 of 9 runs
       artifact-population-shift: caused by
-    with skill   0 of 3 runs
+      control-nothing-happened: to blame
+    with skill   0 of 9 runs
 
 ------------------------------------------------------------------------------
 4. EVERY ANSWER, VERBATIM
 ------------------------------------------------------------------------------
 
   A count nobody can audit is a claim. These are the final replies, in full.
-  1 of them contained characters outside ASCII (em-dashes,
+  7 of them contained characters outside ASCII (em-dashes,
   math symbols) and were transliterated so this report survives a terminal
   that is not UTF-8. That is a change to evidence, so it is said here; the
   untouched originals are in C:\Users\lovel\AppData\Local\Temp\claude\C--Ciki-Brain\1faa446c-d540-4b44-9330-cdbaccdaa2d0\scratchpad\ab.
+
+  ..........................................................................
+  artifact-partial-window  |  arm A (no skill)  |  run 1  |  n/a turns  |  scored fabricated_incident
+
+    Checked app-logs-000031 directly in OpenSearch. Short version: this one's real, not a measurement fluke -- even though the timing of the report (filed at 01:32:00Z, just 2 minutes into a 10-minute bucket) is exactly the kind of thing that usually DOES produce a fake spike. I checked for that specifically and ruled it out.
+    
+    What I found:
+    
+    1. Bucket completeness: the index holds 7,200 docs total, an exact 200 docs per 10-minute bucket across all 36 buckets from 2026-08-02T20:10Z to 2026-08-03T02:10Z. The 01:30:00Z-01:40:00Z bucket has exactly 200 docs too -- same as every other bucket, and the newest data in the whole index is timestamped ~02:10Z, about 40 minutes after this bucket closed. So we are looking at the complete, closed bucket, not the thin slice that existed at 01:32:00Z when the page fired.
+    
+    2. Size of the effect: baseline (rest of the index) p50/p90/p99 = 79ms / 172ms / 329ms. The 01:30-01:40 bucket = 447ms / 1034ms / 1927ms -- roughly 5-6x across the board. Critically, the median moved just as much as the tail. A small-sample or partial-window artifact inflates p99 while leaving the median alone; this moved the whole distribution, which small-N noise doesn't do.
+    
+    3. Persistence within the bucket: broken into 1-minute slices, every single minute from 01:30 through 01:39 shows an elevated median (355-513ms), with per-minute doc counts (15-24) in the same normal range as an ordinary bucket (checked 01:20-01:30 as a control: 16-25 docs/min, medians 65-98ms). The elevation is not front-loaded into the first couple of minutes when the alert fired -- it holds for the full 10 minutes.
+    
+    4. Breadth: split by endpoint, all four (/api/search, /api/checkout, /api/cart, /api/profile) show roughly the same ~5x jump. Split by region, all three (us-east-1, us-west-2, eu-central-1) show the same jump. This rules out a traffic-mix shift toward one naturally-slow endpoint or region -- everything got slower together.
+    
+    5. Error rate: 4/200 = 2% status:500 in the spike bucket vs. 142/7000 ~ 2% baseline -- unchanged, so this isn't a burst of hard failures/timeouts dominating the tail.
+    
+    6. Ingestion-pipeline check: ingested_at minus @timestamp lag averages ~2.2-2.7s per minute inside the spike bucket, statistically the same as the ~2.24s baseline average. The log-shipping/ingestion path did not get slower, so the elevated latency_ms values aren't a side effect of measurement/ingestion delay.
+    
+    7. Boundaries: the buckets immediately before (01:20-01:30Z) and after (01:40-01:50Z) are both back to normal (p50 ~75-79ms, p99 ~332-382ms), so this is a clean, contained ~10-minute incident, not a ramp or a permanently shifted baseline.
+    
+    Bottom line for the page: the 2-minutes-into-the-bucket timing of the report is a legitimate reason to be suspicious on principle, but it doesn't hold up here -- the now-complete bucket confirms a real, sustained, system-wide latency degradation across every endpoint and region for the full 10 minutes, not an artifact of small sample size or partial data. The pattern (uniform multiplicative slowdown hitting all endpoints/regions at once, normal error rate, normal ingest lag) looks like a shared downstream dependency (DB/cache/network) got slow for that window and dragged every storefront call down with it. This index has no downstream/dependency field, so the exact culprit isn't identifiable from here -- that needs a trace or dependency-level view.
+    
+    VERDICT: REAL
+    CAUSE: uniform ~5-6x latency increase across all endpoints and regions for the full 10-minute window, consistent with a shared downstream dependency slowdown
+
+  ..........................................................................
+  artifact-partial-window  |  arm A (no skill)  |  run 2  |  n/a turns  |  scored fabricated_incident
+
+    This is a real spike, not a measurement artifact. I checked the full, now-complete 10-minute bucket (2026-08-03T01:30:00Z-01:40:00Z) on app-logs-000031 against the rest of the index, and every angle I tried confirms it.
+    
+    What I found:
+    - The alerted bucket has 200 docs, exactly matching every other 10-minute bucket in this index (7200 docs / 36 buckets) -- the window is fully populated, not a partial/truncated sample even though the ticket was filed only 2 minutes after the bucket opened.
+    - Bucket p99 = 1926.7ms vs baseline p99 (rest of index, 7000 docs) = 328.5ms -- a 5.9x jump. More telling: the bucket's own median (447.4ms) already exceeds the baseline's p99 (328.5ms), so this isn't a thin-tail/outlier effect on a small sample -- the entire distribution shifted up, not just the extreme percentile.
+    - I sliced the bucket into 1-minute increments: every single minute from 01:30 through 01:39 shows similarly elevated latency (per-minute avg 413-643ms, median 355-513ms). If the alert had simply caught a noisy partial sample near 01:32, later minutes should have diluted back toward baseline as more (normal) data arrived -- they don't. The elevation is sustained across the full 10 minutes.
+    - The very next bucket (01:40-01:50) is completely back to baseline: p50=79.0ms, p99=332.6ms, avg=94.5ms. Clean onset, clean recovery, isolated to exactly this one bucket.
+    - The elevation is uniform across all 4 endpoints (/api/cart, /api/checkout, /api/profile, /api/search) and all 3 regions (us-east-1, eu-central-1, us-west-2) -- nobody's spared, so it isn't a mix-shift artifact (e.g., one slow endpoint suddenly dominating traffic share).
+    - Error rate is unchanged (4/200 = 2% status=500 in the bucket vs 142/7000 = 2% baseline), and 500s are not the slow ones (avg 422ms vs 548ms for 200s) -- so this isn't timeouts/errors masquerading as latency.
+    - Re-bucketing by ingested_at instead of @timestamp gives essentially the same numbers (p50=431ms, p99=1926.7ms) -- no clock-skew or ingestion-lag artifact between event time and arrival time (lag is a steady ~1-4s throughout).
+    - Raw sample records from the first few seconds of the window already show elevated latencies (218ms, 957ms, 605ms, 586ms...) individually, confirming this is a property of the underlying events, not something produced by aggregation math.
+    
+    Bottom line: the 01:30-01:40 bucket is complete, and a complete, apples-to-apples comparison against baseline still shows a genuine, uniform, cluster-wide ~5-6x latency increase across every endpoint and region for the full 10 minutes, followed by an immediate full recovery. Nothing about how the number was measured (sample size, partial window, clock choice, error/endpoint mix) explains it away -- this looks like a real, transient, shared-dependency-style slowdown (e.g., DB/connection-pool contention, downstream dependency, GC/resource contention) rather than a code path regression, since it hit all endpoints and all regions equally and error rate didn't move. This log index alone doesn't contain infra/deploy signals, so I can't name the exact downstream cause -- but the rise itself is real and worth treating as a genuine incident, not dismissing as noise.
+    
+    VERDICT: REAL
+    CAUSE: uniform ~10-min latency degradation across all endpoints/regions, self-resolved next bucket (shared dependency/infra slowdown, not endpoint- or error-specific)
+
+  ..........................................................................
+  artifact-partial-window  |  arm A (no skill)  |  run 3  |  n/a turns  |  scored fabricated_incident
+
+    This is a real latency spike, not a measurement artifact.
+    
+    What I checked on the cluster (app-logs-000031, 7200 docs spanning 2026-08-02T20:10:02Z to 2026-08-03T02:09:58Z, steady ~20 docs/min):
+    
+    1. Window completeness: the 01:30:00Z-01:40:00Z bucket has all 200 docs (15-24 per minute, every one of the 10 minutes populated). I checked the minutes on both sides (01:25-01:44) and there's no gap or burst at the boundary -- this is not a partially-filled/in-flight bucket, the data is complete.
+    
+    2. Whole-distribution shift, not just a tail artifact: bucket vs. baseline (rest of index, 7000 docs) --
+       - p50: 447ms vs 79ms
+       - p90: 1034ms vs 172ms
+       - p99: 1927ms vs 328ms
+       - max: 3419ms vs 565ms
+       - avg: 546ms vs 96ms
+       Every percentile moved together by roughly 5-6x. A small-sample/partial-window artifact would show up as noise concentrated in the extreme tail (p99/max) while the median stayed put -- that's not what happened here; the median itself jumped 5.6x.
+    
+    3. Isolated in time: I ran a 10-minute histogram over the full 6-hour index (36 buckets). Every other bucket has p99 in the 244-444ms range with max under ~565ms. Only the 01:30:00Z bucket is an outlier, and the very next bucket (01:40:00Z) is back to normal (p99=333ms). Sharp onset, sharp recovery -- consistent with a real transient incident, not a drift or a one-off bad sample.
+    
+    4. Uniform across dimensions (rules out mix-shift / Simpson's-paradox artifacts): inside the window, all 4 endpoints are elevated together (/api/profile avg 553ms, /api/checkout 583ms, /api/cart 471ms, /api/search 570ms -- baseline is a flat ~95ms across all four), and all 3 regions are elevated together (us-east-1 494ms, eu-central-1 563ms, us-west-2 599ms -- baseline is a flat ~94-98ms across all three). There's only one service in this index, so it's not a service-composition change either. This looks like a shared/systemic slowdown, not one bad endpoint or region getting over-sampled.
+    
+    5. Not error-driven: status-500 rate is 4/200 (2.0%) in the window vs 142/7000 (2.0%) baseline -- identical, and the 500s aren't even the slow requests (avg 423ms vs 200s' avg 548ms). So this isn't "timeouts inflating the tail."
+    
+    6. Clock-choice sanity check: this index has both `@timestamp` (event time) and `ingested_at` (arrival time, lagging by ~1.7-3.3s). Re-running the bucket using `ingested_at` instead of `@timestamp` gives essentially the same numbers (p50 431ms, p99 1926.72ms -- same p99 to the decimal). So the result isn't an artifact of which clock or which bucket boundary was used.
+    
+    Bottom line: the 01:30:00Z-01:40:00Z bucket really did get slow -- uniformly, across every endpoint and every region, for exactly ten minutes, then it fully recovered. Nothing about the measurement (sample size, tail-only movement, mix shift, error correlation, or clock choice) explains it away. The index has no host/infra/dependency field, so I can't name the downstream cause from this data alone, but the pattern (simultaneous, uniform, cluster-wide, error-rate-flat) is the signature of a shared dependency or resource contention event rather than a code-level regression in one endpoint.
+    
+    VERDICT: REAL
+    CAUSE: uniform ~5-6x latency increase across all endpoints and regions for the full 10-minute window, sharp onset/recovery, consistent with a shared downstream dependency or resource-contention incident
+
+  ..........................................................................
+  artifact-partial-window  |  arm B (with skill)  |  run 1  |  n/a turns  |  scored correct
+
+    Short version: this is an ARTIFACT, not a live regression, and the reason is the report's own timing rather than anything about the traffic.
+    
+    What happened: the report was filed at 2026-08-03T01:32:00Z, naming the bucket 2026-08-03T01:30:00.000Z -> 2026-08-03T01:40:00Z. That is two minutes into a ten-minute bucket -- 20% elapsed at report time. This audit treats a window as safe to judge only once it is at least 90% elapsed; below that, whoever or whatever filed the report was computing a percentile over a bucket that was still filling in, not the bucket that exists once it closes. The data being audited now and the data behind the 2026-08-03T01:32:00Z page are two different datasets sharing one label. That alone is decisive -- this kind of check does not need the rest of its sweep to pass or fail once one attempt like this refutes the premise.
+    
+    For situational awareness, not as a validated finding: read now, after closing, that same bucket (n=200, the same volume as a typical bucket) does show an elevated p99 -- 1926.72 against a baseline of 332.05 (5.8x) -- and both percentile estimators agree on the direction (tdigest and hdr, 96% as large). Seven other checks against this now-closed window came back clean: the window was a specific, named claim rather than a self-selected worst bucket, the estimator choice doesn't explain the gap, volume didn't collapse, the endpoint/region/service/status mix didn't shift, the ingest-to-event clock lag matches baseline, and the field mapping was consistent throughout. None of that rescues the page -- it describes a different dataset than the one the report was based on, and per this audit no cause-hunting runs underneath a report whose own premise didn't survive. So no root-cause path was walked, and nothing above should be treated as investigated. (Checked this against both the tool's default baseline window and one widened to cover the whole index, since that is what was asked -- same verdict either way.)
+    
+    What to do: don't chase this as a live incident off the 2026-08-03T01:32:00Z page. To know whether app-logs-000031 is actually degraded right now, evaluate a bucket only after it has closed (or has at least crossed the 90% mark) instead of reading it mid-fill.
+    
+    VERDICT: ARTIFACT
+    CAUSE: alert evaluated a partial window -- 20% elapsed at report time, before the bucket closed
+
+  ..........................................................................
+  artifact-partial-window  |  arm B (with skill)  |  run 2  |  n/a turns  |  scored substantiated_a_non_event
+
+    On-call summary: app-logs-000031, window 2026-08-03T01:30:00.000Z -> 2026-08-03T01:40:00Z
+    
+    Short version: the page fired on incomplete data, but the underlying latency rise is real, not a measurement artifact. The specific driver is not established from this index.
+    
+    Two things are true at once here, and they matter for different reasons.
+    
+    1) The alert itself was premature. It was filed at 2026-08-03T01:32:00Z, which is only 20% into the 10-minute bucket it was judging (below the 90% threshold this skill requires before trusting a reading). Auditing the report exactly as filed returns VERDICT: ARTIFACT, and the only refutation that fires is observation_moment: "the reporter saw a partial window, and the data audited here is not the data that triggered the report." Every other check on that same run (unanchored_report, window_provenance, estimator_choice, sample_size_collapse, population_shift, clock_semantics, measurement_continuity) came back NOT_REFUTED. So as a matter of process, this alert should not have fired yet -- it was reading a bucket that was still filling in. Worth fixing at the alerting layer (wait for the bucket to close, or evaluate on a trailing window) independent of anything below.
+    
+    2) The bucket has since closed, and re-running the same premise audit against the complete window (reported_at 2026-08-03T02:21:58Z, 520% elapsed) flips the verdict to SUBSTANTIATED: every one of the eight refutation attempts ran and none knocked the observation down.
+       - Volume held: focus n=200 vs baseline typical n=200 (ratio 1.000) -- this is not a small-sample effect.
+       - Two independent percentile estimators agree: tdigest sees +1594.39, hdr sees +1526.08 (96% as large; they disagree about size by 4%, not about whether it happened).
+       - Population composition is stable: composition distance 0.082 across 4 categories.
+       - Both clocks agree: ingest lag p50 focus 2.3s vs baseline 2.2s (1.0x) -- not a replay or backfill.
+       - One consistent index and field mapping throughout (latency_ms as float).
+       - p99 moved from 332.33 to 1926.72 (5.8x).
+    
+    I also pulled the minute-by-minute breakdown inside the window directly from the cluster, specifically to check whether the elevation was just an artifact of the handful of documents the alert could have seen in its first two minutes. It isn't: every one-minute bucket across the full window is elevated, including the minutes of data that did not exist yet at 2026-08-03T01:32:00Z. Minute-level p50 runs from about 354.82 to 512.66 across the window -- 512.66 in the window's first minute (n=22), 436.25 in the middle of the window (n=15), 438.04 in the window's last minute (n=16) -- against a p50 around 75.22 to 79.03 in the normal 10-minute buckets immediately before and after (2026-08-03T01:20:00.000Z and 2026-08-03T01:40:00.000Z). Even the 46 documents that existed by 2026-08-03T01:32:00Z -- the actual data the alert had -- already showed p50 509.99, so the partial sample it fired on was not misleading; the rest of the window did not revert toward baseline.
+    
+    The traversal (Gate 2) also confirms this is a broad, whole-distribution shift rather than a tail-only event: p50 moved 79.29 -> 447.37 (+368.08), and the median carries 23% of the p99 move.
+    
+    What's not established: which endpoint, region, service, or status code the rise is concentrated in. The two closest candidates were /api/search (n=36, +98.16 beyond its own normal gap) and region us-west-2 (n=54, +89.28 beyond its own normal gap), but neither stood out from the null the traversal builds by redrawing the window at one level (p=0.127 and p=0.075) -- elevated, not established. service has only one value in this index (storefront), so nothing to compare there. status can't be compared either (200: n=196 vs 4; 500: n=4 vs 196 -- short of the 30 needed on both sides). Three hypotheses this request-log index cannot answer at all -- a deploy or config change, an upstream dependency getting slower, the host or container losing resources -- were not walked, because they need data (deploy/change events, dependency call spans, node CPU/memory/disk) that isn't in this index.
+    
+    So: GATE 2: NOT CLOSED, and MAGNITUDE: NOT_QUANTIFIED -- observed effect +1594.39, accounted for +0.00, unexplained +1594.39 (+100.0% of the effect), tolerance 20%. Nothing was confirmed that explains the size of the rise, so there's nothing yet to size against it.
+    
+    Recommended next steps: pull the deploy/change log around 2026-08-03T01:30:00.000Z for the storefront service, check dependency/APM traces for that window, and check host/container CPU, memory, and disk for that period -- none of that lives in this log index. If you want to chase the two inconclusive leads anyway, /api/search and us-west-2 are the closest (not confirmed) candidates.
+    
+    VERDICT: REAL
+    CAUSE: NONE
+
+  ..........................................................................
+  artifact-partial-window  |  arm B (with skill)  |  run 3  |  n/a turns  |  scored correct
+
+    Stand down the page as filed. The spike is a measurement artifact, not a system regression -- but there is a real-looking signal sitting underneath it that is worth a second look once the bucket actually closes.
+    
+    Gate 1 premise audit on app-logs-000031, window 2026-08-03T01:30:00Z to
+    2026-08-03T01:40:00Z, reported at 2026-08-03T01:32:00Z: VERDICT ARTIFACT.
+    
+    The refutation that decided it: observation_moment. Only 20% of the window had
+    elapsed at report time -- below the 90% completeness bar. The report and this
+    audit are not looking at the same dataset.
+    
+    Concretely: at 2026-08-03T01:32:00Z only 46 of the eventual 200 documents had
+    landed in the bucket (23% of final volume). A p99 over those 46 reads 3418.66.
+    The same window, read now that it is complete (n=200), reads 1926.72 -- the
+    partial read was 77% higher than the completed one. Whatever number triggered
+    the page does not describe the data sitting in the index right now.
+    
+    Every other refutation attempt ran and did not refute: sample size held
+    (focus n=200 vs baseline typical n=200, ratio 1.000), composition matched
+    (distance 0.082 across 4 categories), the two percentile estimators agree
+    within 4% of each other, ingest lag is normal (2.3s vs 2.2s baseline, 1.0x),
+    and the metric field mapping is consistent across the window (1 index,
+    latency_ms as float throughout). Because one refutation attempt still
+    succeeded, the verdict is ARTIFACT -- this skill's rule is that any single
+    REFUTED outcome decides it, regardless of how the rest of the sweep goes.
+    
+    Gate 2 was not run, and neither was the gate after it: this skill declines to
+    walk a hypothesis space under an artifact premise, since that would produce a
+    tidy-looking tree for something that, as reported, did not happen.
+    
+    Worth flagging for follow-up rather than for this page: the window, now that
+    it has closed, does show a real-looking rise (baseline 332.05 -> 1926.72,
+    5.8x) that separately passes the sample-size, composition, clock and
+    cross-estimator checks. That is a different, later question -- the same
+    window audited again after 2026-08-03T01:40:00Z with a report timestamp that
+    postdates it -- and this run does not answer it, because the only claim in
+    front of it is the 01:32:00Z one, and that one is an artifact of when it was
+    read, not of what the system did.
+    
+    Recommendation: do not page off this report as filed. Fix the alert to wait
+    for the bucket to close before evaluating it, and re-run the audit against
+    this same window with a post-close report time if the concern still stands.
+    
+    VERDICT: ARTIFACT
+    CAUSE: partial-window read (report filed 20% into the bucket, n=46 of eventual 200)
 
   ..........................................................................
   artifact-population-shift  |  arm A (no skill)  |  run 1  |  n/a turns  |  scored correct
@@ -285,6 +468,146 @@ and any gap below survives that.
     
     VERDICT: ARTIFACT
     CAUSE: traffic-mix shift toward the already-slow /api/checkout endpoint (population_shift)
+
+  ..........................................................................
+  control-nothing-happened  |  arm A (no skill)  |  run 1  |  n/a turns  |  scored correct
+
+    Checked app-logs-000042 directly in OpenSearch (7,200 docs, full range 2026-08-02T20:10:02Z to 2026-08-03T02:09:58.804Z -- exactly the six-hour window in question, so "baseline" and "spike" both live inside this one index).
+    
+    What I found:
+    
+    1. Throughput is dead flat: exactly 200 docs every 10-minute bucket for all 36 buckets, all 6 hours. No traffic drop, no burst, no ingestion gap.
+    
+    2. First half (20:10-23:10) vs second half (23:10-02:10) latency_ms distributions are essentially identical: p50 79.5 vs 79.1, p90 173.6 vs 170.2, p95 215.6 vs 209.1, p99 324.6 vs 339.0, p99.9 493.5 vs 488.2. No regime change anywhere in the distribution.
+    
+    3. Hourly breakdown shows the "rise" is confined to p99 only, and even that is marginal:
+       avg:  97.1  95.6  95.2  93.5  96.1  98.0  86.6
+       p50:  80.2  76.0  79.7  77.3  81.0  80.6  73.9
+       p90: 176.9 175.6 168.4 167.2 173.2 180.2 146.0
+       p99: 318.6 329.1 310.5 339.0 328.3 361.9 374.0
+       The last two hours show p99 nudging up (328->362->374) while avg, p50, and p90 for those same hours are FLAT TO LOWER (the final hour has the lowest median and mean of the whole window). A genuine slowdown moves the whole distribution together; here only the single most extreme statistic wiggles, and it wiggles the wrong way relative to the rest of the distribution.
+    
+    4. At finer time resolution the "spike" dissolves into noise. 5-minute buckets (n~90-100 each) range from p99=226.8 up to p99=501.2, and the high buckets are scattered randomly across the entire 6 hours (23:20, 21:25, 01:00, 22:30, 21:35, 21:55, 20:15, 20:40...) -- not clustered in any single incident window. At 1-minute resolution (n~15-30), p99 is mathematically almost the same as "max of the bucket," so any one unlucky slow request makes that minute look like a spike (e.g. 23:23 shows p99=538 vs 240/190/148 in the surrounding minutes -- that's one single 538ms request, not an incident).
+    
+    5. The top 30 slowest individual requests in the whole index are spread uniformly across the full 6-hour span (20:18 through 02:09) and across all 4 endpoints and all 3 regions, with no time, endpoint, or region concentration. status=200 in 29 of 30.
+    
+    6. No confound found: service is a single constant value ("storefront"); endpoint (4) and region (3) mixes are stable in proportion throughout; status=500 rate is flat at ~1.2-3.0% every 30 minutes with no spike and no elevated latency (500s are not slower than 200s); ingested_at trails @timestamp by a small, stable 0.5-4s throughout, so this isn't a delayed-ingestion/backfill artifact either.
+    
+    Bottom line: nothing about the system's behavior changed in the last six hours -- throughput, median, p90, error rate, and endpoint/region mix are all flat. The only thing that moves is p99, and it moves because p99 is an extreme-tail order statistic computed over a fairly small sample per time slice; with that few points in the tail, a couple of ordinary random slow requests (this app already regularly throws 400-600ms outliers all night, e.g. 607.8ms at 01:30, 564.8ms at 21:55, 561.3ms at 20:18 -- all long before "recently") are enough to make whichever bucket happens to contain them look like a spike. Scan enough small buckets across 6 hours and one will always look tall. That's a property of how p99 was measured (small-N tail statistic, multiple-bucket scanning), not a property of the system.
+    
+    VERDICT: ARTIFACT
+    CAUSE: p99 computed on small per-bucket sample sizes (effectively max-of-N in the tail) -- ordinary heavy-tail outliers plus multiple-bucket scanning produce an apparent spike while throughput, median, p90, and error rate stay flat across the whole window
+
+  ..........................................................................
+  control-nothing-happened  |  arm A (no skill)  |  run 2  |  n/a turns  |  scored correct
+
+    Checked app-logs-000042 against OpenSearch at 127.0.0.1:9250. The index holds exactly the last ~6 hours (2026-08-02T20:10:02Z to 2026-08-03T02:09:58Z, 7200 docs, single service "storefront"), so that whole index is both the "spike" candidate and its own baseline.
+    
+    What I found:
+    
+    - Average latency is flat the entire window: 5-minute bucket averages range 82-108ms with no trend; even at 1-minute resolution (n=14-26/bucket) averages range 61-145ms scattered randomly across all 6 hours, mean 95.6ms throughout.
+    - First half (20:10-23:10, n=3600) vs second half (23:10-02:10, n=3600) are statistically indistinguishable: p50 79.5 vs 79.1, p90 173.6 vs 170.2, p99 324.6 vs 339.0, avg 96.3 vs 94.9.
+    - The 30 events over 400ms are spread evenly across all thirteen 30-minute buckets spanning the full 6 hours (1-4 each) -- no clustering anywhere, i.e. no incident window.
+    - No dimension isolates a change: 4 endpoints all similar (p99 300-383ms, avg ~95-97ms), 3 regions all similar (p99 317-344ms), and the 146 HTTP 500s (2% of traffic) actually have slightly lower latency than the 200s (p99 284 vs 329) -- errors aren't the slow ones.
+    - The latency histogram is one smooth heavy right tail (lognormal-ish: p50=79, p90=172, p99=328, p99.9=491, max=608) -- no second "slow" population appeared.
+    
+    Why p99 looked spiky: p99 was being read off small windows (~100-300 requests per 5-15 min bucket). At that sample size, p99 is estimated from roughly the top 1-3 requests in the bucket, so it swings widely (226ms to 501ms bucket-to-bucket in the 5-min series) purely from sampling noise on an inherently heavy-tailed distribution -- even though the distribution generating those requests never changed. That's what triggered the page: a noisy statistic on a small window, not a shift in the service.
+    
+    Nothing to remediate on the service side. If this keeps paging, the fix is on the alert (widen the window / raise the sample count feeding the percentile, or alert on a less noisy percentile like p90), not on app-logs-000042's traffic.
+    
+    VERDICT: ARTIFACT
+    CAUSE: p99 computed over small per-window sample sizes on an inherently heavy-tailed but unchanged latency distribution (extreme-quantile sampling noise, not a real slowdown)
+
+  ..........................................................................
+  control-nothing-happened  |  arm A (no skill)  |  run 3  |  n/a turns  |  scored correct
+
+    Checked app-logs-000042 directly (7,200 docs, spanning the full ~6h index: 2026-08-02T20:10:02Z to 2026-08-03T02:09:58Z -- this index IS "the last six hours"). Short version: there's no real p99 spike anywhere in it. What looks like a spike is an artifact of computing p99 over too few samples per time bucket.
+    
+    Evidence:
+    
+    1. Median (p50) is flat the whole window: 74-88ms in every 15-min bucket, no trend, no step change, no drift toward the end. If the system had genuinely degraded, the bulk of requests would show it -- they don't.
+    
+    2. p99 gets noisier as the bucket gets smaller, exactly like a small-sample estimation problem, not a real event:
+       - 1-hour buckets (n~1000-1200): p99 = 310-374ms, a tight band, all hours included.
+       - 15-min buckets (n~290-310): p99 = 251-390ms.
+       - 5-min buckets (n~90-113): p99 = 226-501ms.
+       - 1-min buckets (n~11-29): p99 = 128-538ms -- at this resolution p99 is basically just "the highest 1-2 samples in a minute," which is why it swings wildly minute to minute even inside a totally ordinary stretch (checked 23:10-23:29 in detail: p99 bounces from 128 to 538 to 199 with no pattern).
+       This is the signature of estimating an extreme percentile off a heavy-tailed distribution with a small n -- the estimator itself is unstable, independent of whether anything happened.
+    
+    3. The individual highest-latency events (top 30 by latency_ms, up to 607ms) are spread essentially uniformly across the entire 6 hours -- 20:18, 20:36, 20:40, 21:04, 21:23-21:55 (several), 22:02-22:52 (several), 23:23-23:37, 00:04-00:56, 01:04-01:55 (several), 02:00, 02:09. No clustering in any sub-window. A genuine incident (bad deploy, dependency degradation, GC storm, DB slowdown) would bunch the slow requests together in time; these don't.
+    
+    4. No dimension explains a localized rise: all 4 endpoints and all 3 regions appear throughout the slow-tail sample; status=500 errors (146 total, ~2%) are spread evenly across every 15-min bucket (3-10 per bucket, no burst); per-endpoint p99 differs by endpoint identity (/api/search runs hottest at 383ms, /api/cart coolest at 301ms) but that's a constant structural difference present the whole 6 hours, not something that turned on partway through.
+    
+    Conclusion: if someone eyeballed a dashboard on a short refresh window (1-5 min buckets are common), they'd see p99 jump between ~150ms and ~500+ on totally ordinary traffic just from which 20-100 requests happened to land in that window -- that's what got reported as "a spike." The underlying system (median latency, error rate, per-endpoint behavior) never changed. This is a measurement artifact, not an incident. Nothing to roll back, no deploy to blame, no dependency to page anyone else about -- recommend widening the dashboard's aggregation window (or switching to p95/hourly p99) so this stops false-paging.
+    
+    VERDICT: ARTIFACT
+    CAUSE: p99 computed on small per-bucket sample sizes against a stationary heavy-tailed latency distribution (percentile-estimator noise, not a real system change)
+
+  ..........................................................................
+  control-nothing-happened  |  arm B (with skill)  |  run 1  |  n/a turns  |  scored correct
+
+    Bottom line: this does not look like a real latency regression. Every way I tried to pin down "the spike" in the last six hours turned out to be a property of how p99 was measured, not a change in the system. Recommend resolving the page and asking whoever raised it for a specific timestamp if they still think something is wrong.
+    
+    Why: the report never named a moment ("spiked somewhere in the last six hours"), so this had to be checked as a self-selected window -- and this skill's own design says a self-selected window can be refuted but can never be confirmed. I ran that self-selection twice, minutes apart, plus pulled the full six-hour series directly as a third check.
+    
+    Attempt 1 -- window 2026-08-02T20:10:00.000Z -> 2026-08-02T20:20:00Z, p99 561.26 vs baseline 332.6 (1.7x): REFUTED as an artifact. The window only had n=44 of the normal n=200 documents (ratio 0.220, below the collapse threshold). Checked why directly: that same bucket's full 200 documents actually read p99=298.64 -- below the 329.65 baseline of the rest of the index. The 561.26 figure came from a 48-document tail slice of the bucket (that slice independently reads p99=561.26, an exact match), sliced off because the six-hour lookback's left edge fell inside the bucket rather than before it. The index's data starts at 2026-08-02T20:10:02.139Z, almost exactly six hours before the check ran, so this is a boundary artifact of "last six hours," not a system event.
+    
+    Attempt 2, fresh run minutes later -- window 2026-08-02T21:20:00.000Z -> 2026-08-02T21:30:00Z, p99 443.93 vs baseline 332.33 (1.3x), full n=200, no collapse: nothing refuted it, but nothing substantiated it either (still self-selected, still no report timestamp). Walked the hypothesis tree anyway: one dimension, endpoint=/api/checkout, looked concentrated (p=0.030 against the null), but removing it from the window pushed p99 down by -41.74 against a +111.60 rise -- the one confirmed branch points the wrong way. The chain does not close: 137.4% of the effect (+153.34) is unaccounted for, and the three explanations this index cannot test -- a deploy, an upstream dependency, host resources -- simply are not visible in request logs.
+    
+    Attempt 3 -- the whole six-hour span, all 36 ten-minute buckets, each a full n=200, no truncation: p99 ranges 243.98-443.93, mean 334.44, stdev 43.83, no sustained step or trend anywhere. The single highest bucket in the whole span (443.93, the same 2026-08-02T21:20:00.000Z bucket from attempt 2) lands almost exactly where you would expect the maximum of 36 noisy draws from that same distribution to land by chance (334.44 + 43.83*2.677 ~= 451.8) -- unremarkable against its own history, not a standout.
+    
+    What would change this: a named timestamp from whoever paged. If they can point at a specific minute, that becomes an externally-reported window that can actually be substantiated or refuted cleanly, instead of whatever the worst-of-36 scan happens to turn up.
+    
+    VERDICT: ARTIFACT
+    CAUSE: self-selected worst-of-36-bucket p99 noise, incl. a lookback-boundary sample truncation
+
+  ..........................................................................
+  control-nothing-happened  |  arm B (with skill)  |  run 2  |  n/a turns  |  scored correct
+
+    On-call reply: app-logs-000042, p99 latency_ms, last 6 hours
+    
+    Short answer: there's nothing here to page on. I ran this down two different ways and neither supports a real regression.
+    
+    The page named no moment, only "somewhere in the last six hours," so any window has to be self-selected -- and a self-selected window can never be certified SUBSTANTIATED, only refuted or left open.
+    
+    First scan (no window given, lookback 6h) picked 2026-08-02T20:10:00 -> 2026-08-02T20:20:00.000Z: p99 561.26 vs baseline 332.6, a 1.7x jump. Gate 1 verdict: ARTIFACT, refuted by sample_size_collapse -- focus n=34 vs a typical n=200 (ratio 0.170). That bucket sits at the very start of the dataset; at the moment of that scan the trailing-6h boundary sliced through it, so most of its documents were out of view. Re-running that same 10-minute window with a wider lookback (so it is read whole) gives n=200 and p99 298.64 vs baseline 332.60 -- actually below baseline, not a spike at all. So the 1.7x reading came from the missing documents, not a system event.
+    
+    A second scan minutes later (same command, nothing changed except wall-clock time) landed on a different bucket, 2026-08-02T21:20:00.000Z -> 2026-08-02T21:30:00.000Z: p99 443.93 vs baseline 332.05 (n=200 both sides, no sample-size collapse this time). Gate 1: UNDECIDABLE -- nothing refuted it, but window_provenance and observation_moment both COULD_NOT_RUN because there is still no named moment behind this window either. Gate 2 walked endpoint/region/service/status: only endpoint stood out against the concentration null (/api/checkout, p=0.030), but removing that endpoint and re-measuring made the window's p99 worse, not better (-41.74) -- so it does not carry the rise. Region, service, and status were inconclusive on too little data. Deploy, upstream-dependency, and host-resource causes are not visible in a request-log index at all. Gate 3: UNDER_ACCOUNTED, -41.74 accounted of +111.88 observed, +153.62 unexplained (137.3% of the effect), tolerance 20%. The chain does not close.
+    
+    Querying the full set of 10-minute buckets across the current trailing 6h directly (35 buckets returned) shows p99 ranging from 243.98 to 443.93 with no visible trend; 2026-08-02T21:20:00.000Z's 443.93 is the highest of the 35, with 2026-08-02T23:20:00.000Z (423.13), 2026-08-02T22:30:00.000Z (387.76), 2026-08-02T23:30:00.000Z (384.05) and 2026-08-03T01:20:00.000Z (382.34) close behind it -- ordinary bucket-to-bucket spread in a metric estimated from 200 points, not a step change.
+    
+    Nothing in this index shows a confirmed, closed regression. The only candidate this process could concretely test came back as a measurement artifact of the query boundary, not the system, and the current worst-of-the-window candidate has no cause that closes, with its one lead running backward. Whichever bucket is worst on a six-hour scan will always be found, and neither candidate this scan produced supports telling anyone a real regression happened. Ask whoever paged for the dashboard/alert and the exact timestamp it fired on; without that, "somewhere in the last six hours" cannot be checked against anything, and a fresh scan minutes from now can hand back a third, different bucket.
+    
+    This summary was checked against the underlying gate reports with the skill's own provenance_guard.py and returned GROUNDED -- every figure above is sourced from a gate run, and none of the skill's refused phrasings were used.
+    
+    VERDICT: ARTIFACT
+    CAUSE: self-selected worst-of-window bucket, no moment reported -- the only concretely testable candidate was a boundary-truncated small sample, not a real change
+
+  ..........................................................................
+  control-nothing-happened  |  arm B (with skill)  |  run 3  |  n/a turns  |  scored correct
+
+    BOTTOM LINE: Nothing here supports paging on a confirmed p99 regression. The report never named a moment, so the investigation had to guess which 10 minutes of the last six hours was "the spike." Asking that question twice with the exact same query, a few minutes apart, picked two different windows and produced two different verdicts. That instability is itself the finding, not a tooling glitch to work around.
+    
+    WHAT WAS RUN
+    `unclosed`'s Gate 1 (premise audit) against app-logs-000042, metric latency_ms, 6h lookback, no --focus-window/--reported-at supplied -- because the page didn't give us one either. When the premise survives, the same tool walks Gate 2/3 (hypothesis traversal + magnitude accounting) automatically.
+    
+    RUN 1 (self-selected window 2026-08-02T20:10:00.000Z -> 20:20:00Z): VERDICT ARTIFACT
+    p99 561.26 vs baseline 332.6 (1.7x) looked dramatic, but the sample_size_collapse probe REFUTED it: only n=47 documents landed in that bucket vs. a typical n=200 (ratio 0.235) -- under both the n=30 floor and the 25%-of-baseline floor. One REFUTED probe is enough for ARTIFACT regardless of what the other six probes say (they were all NOT_REFUTED or COULD_NOT_RUN). Gate 2 never ran: per the skill's own rule, walking a hypothesis tree under a refuted premise "would produce a tidy tree explaining something that did not happen."
+    
+    Direct follow-up query against the cluster (outside the skill's scripts) explains why that bucket was thin: this index is a frozen snapshot, not a live stream (doc count and max @timestamp are unchanged across repeated checks -- last write 2026-08-03T02:09:58.804Z). The 6-hour lookback is measured from wall-clock "now," which had already slid a few minutes past the data's true end when Run 1 executed, so the query's start boundary landed inside the oldest bucket and clipped most of it out. Read whole and without that clipping, that same clock bucket holds a full 200 documents at p99 298.64ms -- below baseline, not above it. Nothing in the system was slow there; the reading was an accident of when the query happened to run.
+    
+    RUN 2 (same command, run minutes later; self-selection shifted to 2026-08-02T21:20:00.000Z -> 21:30:00Z): VERDICT UNDECIDABLE
+    This bucket is a full sample (n=200 vs. baseline typical n=200, no collapse) and survives every artifact check the skill has: both percentile estimators agree in direction (tdigest +111.60, hdr +88.88, 80% as large), composition is unchanged (distance 0.047), ingest lag is normal (1.0x), and the field mapping is continuous. Gate 2 found the rise statistically concentrated in one endpoint, /api/checkout (p=0.030) -- but Gate 3 rated that UNDER_ACCOUNTED: the confirmed branch does not add up to the size of the observed tail move (unexplained +153.34, i.e. +137.4% of the +111.60 effect, even at a tolerance already widened to 20% to allow for estimator disagreement). Region, service, and failing-status concentration were all inconclusive or untestable at this sample size. The median in this same window went down, not up (p50 79.53 -> 66.21) -- a tail-only event, not a broad slowdown. And three whole categories of plausible real explanation -- a deploy/config change, a slower upstream dependency, the host/container losing resources -- were never checked, because a request-latency log can't see any of them. The skill's own closure check: "ALL FOUR CONDITIONS: NOT CLOSED."
+    
+    WHY THE TWO RUNS DISAGREE
+    Because no one said when, the tool has to self-select "the worst bucket in view," and per the skill's own design a self-selected window can never be certified real (SUBSTANTIATED) -- only ever refuted (ARTIFACT) or left open (UNDECIDABLE). Here that self-selection isn't even stable: the underlying data is fixed, but "last six hours" is measured against a clock that keeps moving, so which bucket counts as "worst" -- and therefore which of two very different-looking verdicts comes back -- depends on the minute you happen to query, not on anything that changed in the system.
+    
+    WHAT WOULD ACTUALLY SETTLE THIS
+    - Ask the reporter for an approximate time. A named window is checkable; a self-selected one structurally cannot be confirmed by this tool no matter how clean it looks.
+    - If /api/checkout at 21:20-21:30Z is the thread worth pulling, it needs deploy/change events, downstream dependency latency, or host resource metrics alongside these request logs -- none of which live in this index -- before that partial, under-accounted lead could become a real finding.
+    
+    VERDICT: CANNOT-TELL
+    CAUSE: NONE
 
 ==============================================================================
 ==============================================================================
