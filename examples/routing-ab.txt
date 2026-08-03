@@ -1,0 +1,184 @@
+==============================================================================
+unclosed -- does adding it to the upstream router break existing routing?
+captured 2026-08-03 local
+==============================================================================
+
+The contribution target routes requests through a top-level SKILL.md and grades
+that routing with 18 golden cases (tests/evals/fixtures/routing.json) at a 0.80
+accuracy threshold. Adding a skill means adding rows to that router, and a new
+skill whose triggers include "error rate jump" sits one word away from three
+existing log-analytics cases. Whether it captures them is a measurable question,
+so it was measured -- before the PR, not after the merge.
+
+DESIGN
+
+  Two routers, identical except for the unclosed rows:
+
+    control     upstream skills/opensearch-skills/SKILL.md, verbatim
+    treatment   the same file plus exactly the edits the PR proposes:
+                  1. category table row for unclosed (install command)
+                  2. routing-table row: "Verify a reported incident is real
+                     before investigating it -- premise audit, 'is this spike
+                     real', root cause chain that must close"
+                  3. one boundary sentence after the table: unclosed runs
+                     BEFORE log-analytics, not instead of it -- route to
+                     unclosed when the question is whether a reported spike is
+                     real; route to log-analytics when the question is already
+                     what the logs contain
+                  4. frontmatter description gains: RCA, postmortem, incident
+                     investigation, auditing whether a reported spike is real
+
+  All 18 upstream golden cases run once per arm (their protocol is one run per
+  case). Treatment adds 4 new cases: three that must route to unclosed, one
+  PPL-query case that must stay with log-analytics. Any case whose answer
+  differed between arms was rerun 3 more times per arm.
+
+  Every case runs in a fresh context, one router + one request per run, exactly
+  as the upstream eval does it.
+
+TWO CRITERIA, BECAUSE THE UPSTREAM ONE CANNOT SEE THE FAILURE BEING TESTED FOR
+
+  upstream criterion   expected skill name appears anywhere in the reply
+                       (tests/evals/test_skill_routing.py: `expected in
+                       response.lower()`)
+  strict criterion     the skill the reply actually routes to (its ROUTE line)
+
+  The gap between them is not pedantry. A reply that routes to unclosed while
+  explaining "...not log-analytics, which handles queries" contains the string
+  "log-analytics" and scores CORRECT upstream. A router that names its
+  neighbors -- which is exactly what a well-written boundary does -- cannot be
+  caught capturing their traffic by a substring check. The strict criterion is
+  what "did not break existing routing" actually means.
+
+HONEST LIMITS
+
+  - Router model: Claude Sonnet via subagents, not the upstream eval's Bedrock
+    model; the router document is read from a file, not installed as a system
+    prompt. Absolute rates here are NOT the upstream eval's rates.
+  - What carries signal is the arm-to-arm comparison under a harness held
+    constant, and only that.
+  - Primary sweep is one run per case (matching upstream); only flipped cases
+    got repeated sampling. A one-run sweep cannot see instability in the 16
+    cases that agreed -- the two that flipped show what that instability looks
+    like when it surfaces.
+
+------------------------------------------------------------------------------
+1. VERDICTS (strict criterion: the ROUTE line)
+------------------------------------------------------------------------------
+
+  case                     expected                   control          treatment
+  routing-search-01        opensearch-launchpad       correct          correct
+  routing-search-02        opensearch-launchpad       correct          correct
+  routing-search-03        opensearch-launchpad       correct          WRONG (document-processing)
+  routing-logs-01          log-analytics              correct          correct
+  routing-logs-02          log-analytics              correct          correct
+  routing-logs-03          log-analytics              correct          correct
+  routing-traces-01        trace-analytics            correct          correct
+  routing-traces-02        trace-analytics            correct          correct
+  routing-traces-03        trace-analytics            correct          correct
+  routing-aws-01           aws-setup                  correct          correct
+  routing-aws-02           aws-setup                  correct          correct
+  routing-aws-03           aws-setup                  correct          correct
+  routing-ingestion-01     managed-ingestion-service  correct          correct
+  routing-ingestion-02     managed-ingestion-service  correct          correct
+  routing-ingestion-03     managed-ingestion-service  correct          correct
+  routing-ingestion-04     managed-ingestion-service  correct          correct
+  routing-ingestion-05     document-processing        correct          correct
+  routing-negative-01      opensearch-launchpad       WRONG (managed-  correct
+                                                      ingestion-service)
+
+  new cases (treatment only):
+  routing-unclosed-01      unclosed                   --               correct
+  routing-unclosed-02      unclosed                   --               correct
+  routing-unclosed-03      unclosed                   --               correct
+  routing-keep-01          log-analytics              --               correct
+
+  strict:    control 17/18        treatment 21/22
+  upstream:  control 17/18        treatment 22/22  (search-03's wrong answer
+             mentions opensearch-launchpad in passing, so the substring
+             criterion scores it correct -- see section 4)
+
+------------------------------------------------------------------------------
+2. THE QUESTION THIS EXISTS TO ANSWER
+------------------------------------------------------------------------------
+
+  In 28 treatment runs over cases that do not belong to unclosed, the router
+  sent a case to unclosed 0 times.
+
+  The three log-analytics cases -- the nearest neighbors, the ones that share
+  the words "error rate" with unclosed's own description -- all stayed with
+  log-analytics, and each reply cited the boundary sentence as the reason:
+  "not auditing a reported spike (that would be unclosed), just a direct data
+  query." The boundary line did the routing, in the direction intended.
+
+  The three cases that should reach unclosed did, each citing the premise-audit
+  row. The PPL keep-case stayed with log-analytics.
+
+------------------------------------------------------------------------------
+3. THE TWO FLIPS, RESAMPLED (4 runs per arm each)
+------------------------------------------------------------------------------
+
+  Both cases that differed between arms were rerun. Neither flip survives as a
+  treatment effect: both cases are unstable in BOTH arms, and both are
+  ambiguous between two skills that have nothing to do with unclosed.
+
+  routing-search-03  "I have a PDF collection and want to make it searchable"
+    control    launchpad, doc-processing, launchpad, doc-processing   2/4
+    treatment  doc-processing, launchpad, doc-processing, launchpad   2/4 - 3/4
+    The ambiguity is launchpad-vs-document-processing: is "make PDFs
+    searchable" a search-app request or a chunking request? Half the replies
+    argue one way, half the other, in both arms. Nothing in the unclosed rows
+    touches PDFs, chunking, or search apps.
+
+  routing-negative-01  "Bulk index my product catalog JSON ... _bulk API"
+    control    ingestion-service, launchpad, launchpad, launchpad     3/4
+    treatment  launchpad, ingestion-service, launchpad, launchpad     3/4
+    The ambiguity is launchpad-vs-managed-ingestion: bulk-loading data
+    straddles "set up an index" and "ingest at scale". Symmetric across arms.
+
+  Conclusion: the instability pre-exists the treatment and is unmoved by it.
+  A one-run-per-case eval -- which is what the upstream CI runs -- will report
+  one of these as a flip roughly every other sweep, in either direction,
+  whether or not anything changed. That is a property of the golden set, not
+  of this PR.
+
+------------------------------------------------------------------------------
+4. WHAT THE UPSTREAM CRITERION CANNOT SEE (measured, not argued)
+------------------------------------------------------------------------------
+
+  In 3 of 52 runs, the reply routed to skill A while mentioning skill B in its
+  explanation -- and B was the expected answer, so the upstream substring
+  criterion scores the run correct while the request went elsewhere.
+
+  The clearest instance, verbatim (treatment, routing-search-03, primary run):
+
+    "PDF collection needs chunking into JSONL before it can be indexed/
+    searchable -- that's the ingest-side job, not search or cloud config.
+    document-processing -- the user's PDFs need to be processed into chunks
+    (PDF -> JSONL) before they're searchable; this is the ingest category's
+    job, distinct from opensearch-launchpad (which builds the search app/index
+    once content is already chunked).
+    ROUTE: document-processing"
+
+  Expected: opensearch-launchpad. Routed: document-processing. Upstream
+  criterion: CORRECT, because the string "opensearch-launchpad" appears.
+
+  This matters for this PR specifically: unclosed's boundary sentence names
+  log-analytics on purpose. Under the substring criterion, a treatment router
+  that captured every log case for unclosed while politely naming
+  log-analytics in each explanation would score 18/18. The criterion cannot
+  fail in the direction this experiment exists to check, which is why the
+  strict column is the one that answers the question -- and by the strict
+  column, nothing was captured.
+
+------------------------------------------------------------------------------
+5. TOTALS
+------------------------------------------------------------------------------
+
+  runs                                   52 (18+18 primary, 4 new, 12 resample)
+  treatment runs on non-unclosed cases   28
+  captured by unclosed                    0
+  new unclosed cases routed correctly     3/3
+  keep-case stayed with log-analytics     1/1
+  arm-to-arm differences surviving
+    resampling as treatment effects       0
