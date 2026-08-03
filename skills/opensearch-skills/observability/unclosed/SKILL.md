@@ -116,6 +116,34 @@ that selects its own worst bucket will always find one:
 - a window **judged before it finished** is an artifact: the reporter and the
   auditor are looking at two different datasets that share a name
 
+**And the range the auditor swept is part of the claim too.** Those four ask who
+chose the *focus* window. One question sits outside them: who chose the six
+hours it was selected from. The obvious answer — `now - lookback .. now` — hangs
+the tool's own premise on an input nobody records, and the agent evaluation hit
+both halves of the cost:
+
+- the same command against the same **static** index selected a different focus
+  window when it ran a few minutes later. Nothing about the system had changed
+- `now` does not land on a bucket boundary, so the left edge cut through the
+  oldest bucket and returned the share of it that fell to the right of the cut.
+  Read whole, that bucket was n=200 with a p99 *below* baseline; read sliced, it
+  was small enough for `sample_size_collapse` to refute the observation on volume
+  the query itself had removed
+
+So the range hangs on `--as-of` when a caller names a moment and otherwise on the
+newest document in the index — never on the wall clock — and both edges snap
+outward to bucket boundaries, so every bucket returned is queried whole. What is
+still partial after that is partial in the *data*, which is a fact about the
+system and may be judged as one. The resolved range and the clock that fixed it
+are printed on the report: a reader cannot otherwise tell whether re-running the
+command would examine the same buckets. Captured in
+[`examples/window-anchor.txt`](../../../../examples/window-anchor.txt).
+
+This is recorded rather than probed. By the time any attempt sees an observation
+the range has already been chosen, so there is nothing left for a refutation to
+bite on — the fix has to be that the choice is reproducible, not that a ninth
+probe complains about it afterwards.
+
 **And the ruler is part of the claim.** A percentile from an aggregation is not
 a measurement of the data, it is an estimate computed from it, and which
 estimator produced it is a choice almost nobody records. The eighth attempt asks

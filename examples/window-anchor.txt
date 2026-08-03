@@ -1,0 +1,50 @@
+==============================================================================
+unclosed -- what the wall clock was choosing
+==============================================================================
+
+case          : control-nothing-happened  (no window reported, so the tool selects one)
+index         : unclosed-eval-control-nothing-happened-anchor-capture  (generated once, seed 20260802, untouched between runs)
+data span     : 36 buckets x 10m = exactly 6h, the same as the lookback
+
+That last line is the whole mechanism. With six hours of data and a six
+hour lookback measured from `now`, the left edge lands *inside* the oldest
+bucket on every run that does not start exactly on a boundary -- which is
+every run. The bucket is then reported holding whatever fraction of its
+documents fell to the right of the cut.
+
+------------------------------------------------------------------------------
+BEFORE -- range = now-6h .. now, `now` varied to stand in for running later
+------------------------------------------------------------------------------
+
+  simulated now         focus window                   n       p99  verdict
+  03:21:00Z             2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  03:23:00Z             2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  03:25:00Z             2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  03:27:00Z             2026-08-02T21:20:00.000Z      55    548.25  UNDECIDABLE
+  03:29:00Z             2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+
+------------------------------------------------------------------------------
+AFTER -- range anchored on the newest document, both edges on bucket lines
+------------------------------------------------------------------------------
+
+  run                   focus window                   n       p99  verdict
+  #1                    2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  #2                    2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  #3                    2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  #4                    2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+  #5                    2026-08-02T22:30:00.000Z     200    443.93  UNDECIDABLE
+
+------------------------------------------------------------------------------
+WHAT DIFFERS
+------------------------------------------------------------------------------
+
+  before: 2 distinct focus window(s), 2 distinct document count(s), 1 distinct verdict(s)
+  after : 1 distinct focus window(s), 1 distinct document count(s), 1 distinct verdict(s)
+
+  and the report now says which clock it used:
+    SCAN: 2026-08-02T21:20:00Z -> 2026-08-03T03:20:00Z, anchored on newest `@timestamp` in unclosed-eval-control-nothing-happened-anchor-capture at 2026-08-03T03:19:58.804000Z
+
+A reader of the pre-fix output had no way to tell whether re-running the
+command would examine the same buckets. That is the part that mattered:
+the numbers were not wrong so much as unattributable.
+

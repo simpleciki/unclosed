@@ -329,9 +329,9 @@ class Assembled(NamedTuple):
 
 
 def assemble(endpoint, index, metric, time_field, dimension, bucket_minutes, lookback_hours,
-             focus_window=None, reported_at=None) -> Assembled:
+             focus_window=None, reported_at=None, as_of=None) -> Assembled:
     obs, focus = build_observation(endpoint, index, metric, time_field, dimension,
-                                   bucket_minutes, lookback_hours, focus_window, reported_at)
+                                   bucket_minutes, lookback_hours, focus_window, reported_at, as_of)
     premise = audit(obs)
 
     observed_effect = obs.focus_value - obs.baseline_value
@@ -424,10 +424,14 @@ def main() -> int:
     ap.add_argument("--lookback-hours", type=int, default=6)
     ap.add_argument("--focus-window", default=None)
     ap.add_argument("--reported-at", default=None)
+    ap.add_argument("--as-of", default=None,
+                    help="ISO moment the lookback ends. Without it the window is anchored on the "
+                         "newest document in the index, never on the wall clock.")
     args = ap.parse_args()
 
     run = assemble(args.endpoint, args.index, args.metric, args.time_field, args.dimension,
-                   args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at)
+                   args.bucket_minutes, args.lookback_hours, args.focus_window, args.reported_at,
+                   args.as_of)
     premise, traversal = run.premise, run.traversal
     observed_effect, uncertainty = run.observed_effect, run.uncertainty
 

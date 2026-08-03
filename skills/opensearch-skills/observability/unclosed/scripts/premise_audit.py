@@ -146,12 +146,29 @@ class Observation:
     resolved_indices: Optional[list] = None
     metric_field_types: Optional[dict] = None
 
+    # --- provenance of the *scan*, one level out from the claim -------------
+    # `window_start`/`window_end` say which window is being argued about.
+    # These say which range was swept to find it, and -- the part that is
+    # otherwise unrecoverable -- which clock fixed that range. A lookback taken
+    # from the wall clock produces a different range on every run over the same
+    # static index, and nothing in the output would show it. Recorded rather
+    # than probed: no probe can refute a window on this, because by the time a
+    # probe sees the observation the range has already been chosen.
+    scan_window_start: Optional[str] = None
+    scan_window_end: Optional[str] = None
+    scan_anchor: Optional[str] = None
+    scan_anchor_source: Optional[str] = None
+
 
 @dataclass
 class AuditReport:
     verdict: Verdict
     observation_summary: str
     probes: list = field(default_factory=list)
+    #: Which range was swept and which clock fixed it. Printed because a reader
+    #: cannot otherwise tell whether re-running this command would examine the
+    #: same buckets.
+    scan_summary: Optional[str] = None
 
     @property
     def missing_inputs(self):
@@ -161,6 +178,10 @@ class AuditReport:
         lines = [
             f"VERDICT: {self.verdict.value}",
             f"OBSERVATION: {self.observation_summary}",
+        ]
+        if self.scan_summary:
+            lines.append(f"SCAN: {self.scan_summary}")
+        lines += [
             "",
             "REFUTATION ATTEMPTS (what was actually checked):",
         ]
@@ -496,8 +517,17 @@ def decide(probes) -> Verdict:
     return Verdict.UNDECIDABLE
 
 
+def _scan_summary(obs: Observation) -> Optional[str]:
+    if not obs.scan_window_start or not obs.scan_window_end:
+        return None
+    anchor = f" anchored on {obs.scan_anchor_source}" if obs.scan_anchor_source else ""
+    at = f" at {obs.scan_anchor}" if obs.scan_anchor else ""
+    return f"{obs.scan_window_start} -> {obs.scan_window_end},{anchor}{at}"
+
+
 def audit(obs: Observation) -> AuditReport:
     results = [probe(obs) for probe in PROBES]
     summary = (f"{obs.metric} in focus window = {obs.focus_value} vs baseline {obs.baseline_value} "
                f"({obs.focus_value / obs.baseline_value:.1f}x)" if obs.baseline_value else obs.metric)
-    return AuditReport(verdict=decide(results), observation_summary=summary, probes=results)
+    return AuditReport(verdict=decide(results), observation_summary=summary, probes=results,
+                       scan_summary=_scan_summary(obs))

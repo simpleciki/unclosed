@@ -92,11 +92,77 @@ def _read(agg_block, estimator):
     return list(vals.values())[0]
 
 
-def bucket_stats(endpoint, index, time_field, metric, bucket_minutes, lookback_hours):
-    now = datetime.now(timezone.utc)
+def index_max_timestamp(endpoint, index, time_field):
+    """The newest event the index actually holds. `None` when it holds none.
+
+    This is the clock the scan window hangs from. See `resolve_scan_window`.
+    """
+    body = {"size": 0, "aggs": {"newest": {"max": {"field": time_field}}}}
+    res = _get(endpoint, f"/{index}/_search", body)
+    epoch_ms = res["aggregations"]["newest"]["value"]
+    if epoch_ms is None:
+        return None
+    return datetime.fromtimestamp(epoch_ms / 1000.0, tz=timezone.utc)
+
+
+def _floor_to_bucket(dt, bucket_minutes):
+    """`fixed_interval` buckets are aligned to the epoch, not to the query range."""
+    interval = bucket_minutes * 60
+    epoch = dt.timestamp()
+    return datetime.fromtimestamp(epoch - (epoch % interval), tz=timezone.utc)
+
+
+def _ceil_to_bucket(dt, bucket_minutes):
+    floored = _floor_to_bucket(dt, bucket_minutes)
+    return floored if floored == dt else floored + timedelta(minutes=bucket_minutes)
+
+
+def resolve_scan_window(endpoint, index, time_field, bucket_minutes, lookback_hours, as_of=None):
+    """Fix the scan range to a clock that can be named, and to whole buckets.
+
+    Two defects live in the obvious version of this, `now - lookback .. now`,
+    and the evaluation hit both.
+
+    **The wall clock is not a property of the data.** Run the same command
+    against the same static index twice, ten minutes apart, and the range moves
+    with the typing. Different buckets are compared, and the verdict can change
+    with nothing about the system having changed. A tool whose whole position is
+    that a premise must be auditable cannot leave its own premise -- *which
+    window* -- selected by an input nobody records.
+
+    **An unaligned edge slices a bucket in half.** `now` almost never lands on a
+    bucket boundary, so the oldest bucket in range is returned holding whatever
+    fraction of its documents happened to fall to the right of the cut. Read
+    whole it may be n=200 with a p99 *below* baseline; read sliced it is n=40,
+    and `sample_size_collapse` refutes the observation on volume the query
+    removed. The collapse is manufactured by the reader.
+
+    So: anchor on `--as-of` when the caller names a moment, otherwise on the
+    newest document in the index; then snap both edges outward to bucket
+    boundaries, so every bucket returned is queried whole. What remains partial
+    is partial in the data, which is a fact about the system and is allowed to
+    be judged as one.
+
+    Returns `(gte, lt, anchor, anchor_source)` -- three datetimes and a string
+    naming the clock, which travels into the report.
+    """
+    if as_of:
+        anchor = _parse_iso(as_of)
+        source = "--as-of, supplied by the caller"
+    else:
+        anchor = index_max_timestamp(endpoint, index, time_field)
+        if anchor is None:
+            raise SystemExit(f"{index} holds no `{time_field}` values, so there is no window to scan.")
+        source = f"newest `{time_field}` in {index}"
+    lt = _ceil_to_bucket(anchor, bucket_minutes)
+    gte = _floor_to_bucket(lt - timedelta(hours=lookback_hours), bucket_minutes)
+    return gte, lt, anchor, source
+
+
+def bucket_stats(endpoint, index, time_field, metric, bucket_minutes, gte, lt):
     body = {
         "size": 0,
-        "query": _range(time_field, _iso(now - timedelta(hours=lookback_hours)), _iso(now)),
+        "query": _range(time_field, _iso(gte), _iso(lt)),
         "aggs": {
             "per_bucket": {
                 "date_histogram": {"field": time_field, "fixed_interval": f"{bucket_minutes}m", "min_doc_count": 1},
@@ -149,11 +215,16 @@ def ingest_lag_p50(endpoint, index, time_field, second_clock, gte, lt):
 
 
 def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, lookback_hours,
-                      focus_window=None, reported_at=None):
+                      focus_window=None, reported_at=None, as_of=None):
     resolved, metric_types, date_fields = discover_fields(endpoint, index, metric)
-    buckets = bucket_stats(endpoint, index, time_field, metric, bucket_minutes, lookback_hours)
+    gte, lt, anchor, anchor_source = resolve_scan_window(
+        endpoint, index, time_field, bucket_minutes, lookback_hours, as_of)
+    buckets = bucket_stats(endpoint, index, time_field, metric, bucket_minutes, gte, lt)
     if len(buckets) < 2:
-        raise SystemExit(f"Not enough data in {index} over the last {lookback_hours}h to compare anything.")
+        raise SystemExit(
+            f"Not enough data in {index} between {_iso(gte)} and {_iso(lt)} to compare anything "
+            f"({lookback_hours}h ending at {_iso(anchor)}, anchored on {anchor_source})."
+        )
 
     if focus_window:
         # Someone named this window. The audit examines what they claimed.
@@ -213,6 +284,10 @@ def build_observation(endpoint, index, metric, time_field, dim, bucket_minutes, 
         baseline_ingest_lag_p50_s=ingest_lag_p50(endpoint, index, time_field, second_clock, b_start, b_end) if second_clock else None,
         resolved_indices=resolved,
         metric_field_types=metric_types,
+        scan_window_start=_iso(gte),
+        scan_window_end=_iso(lt),
+        scan_anchor=_iso(anchor),
+        scan_anchor_source=anchor_source,
     ), focus
 
 
@@ -232,11 +307,15 @@ def main() -> int:
     ap.add_argument("--reported-at", default=None,
                     help="ISO moment the observation was made. An external report without one "
                          "cannot be verified as a report at all.")
+    ap.add_argument("--as-of", default=None,
+                    help="ISO moment the lookback ends. Without it the window is anchored on the "
+                         "newest document in the index -- never on the wall clock, so the same "
+                         "command over the same data returns the same window whenever it is run.")
     args = ap.parse_args()
 
     obs, focus = build_observation(args.endpoint, args.index, args.metric, args.time_field,
                                    args.dimension, args.bucket_minutes, args.lookback_hours,
-                                   args.focus_window, args.reported_at)
+                                   args.focus_window, args.reported_at, args.as_of)
     report = audit(obs)
     print(f"INDEX: {args.index}    FOCUS WINDOW: {focus['start']} (+{args.bucket_minutes}m)    "
           f"PROVENANCE: {obs.provenance.value}")
