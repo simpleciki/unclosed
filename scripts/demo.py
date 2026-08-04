@@ -73,20 +73,37 @@ VERDICTS = {
     "SUBSTANTIATED": "1;92",
 }
 
+#: One sentence per act: the claim that act exists to make. Bright white, so
+#: the argument reads as a through-line while the verdicts carry the color.
+#: Each phrase must sit inside a single banner line -- a phrase that wraps
+#: is silently never matched.
+EMPHASIS = (
+    "The first question is whether the spike is real.",
+    "The record above is the pass -- not the absence of a complaint.",
+    "rebuilds the number the reporter saw",
+    "unclosed never outputs 'the cause is X'.",
+    "Misses and false alarms are never averaged into one number.",
+    "A chain that will not close, and a tool that says so.",
+)
+
 
 def _c(code, text):
     return f"\x1b[{code}m{text}\x1b[0m" if COLOR else text
 
 
-def _verdicts(line):
-    """Color the verdict words wherever they appear -- banner or tool output.
+def _highlight(line):
+    """Color the verdict words and the per-act claims wherever they appear.
 
     The tool's own reports stay untouched on disk and in the PR; this recolors
-    the demo's forwarding of them, nothing upstream.
+    the demo's forwarding of them, nothing upstream. Verdicts and emphasis
+    never overlap in the same phrase, so the two passes cannot nest.
     """
     for word, code in VERDICTS.items():
         if word in line:
             line = line.replace(word, _c(code, word))
+    for phrase in EMPHASIS:
+        if phrase in line:
+            line = line.replace(phrase, _c("1;97", phrase))
     return line
 
 
@@ -101,7 +118,7 @@ def banner(text, top=False):
             elif line.startswith("ACT "):
                 line = _c(HEAD, line)
             else:
-                line = _verdicts(line)
+                line = _highlight(line)
             print("  " + line)
     print(_c(DIM, "=" * WIDTH))
     if PAUSE is None:
@@ -119,7 +136,7 @@ def run(args, quiet=False):
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, shell=True)
     if not quiet:
         for line in (proc.stdout or "").splitlines():
-            print(_verdicts(line))
+            print(_highlight(line))
         if proc.stderr:
             print(proc.stderr, end="")
     if proc.returncode != 0:
@@ -138,7 +155,7 @@ def excerpt(path, start_marker, end_marker, label):
     print(_c(CMD, f"$ (from {path})"))
     print()
     for line in text[i:j].rstrip().splitlines():
-        print(_verdicts(line))
+        print(_highlight(line))
 
 
 def main() -> int:
@@ -157,14 +174,14 @@ def main() -> int:
     banner("unclosed\n\n"
            "Log root-cause analysis that audits its own premise\n"
            "and refuses to name a cause it cannot close.\n\n"
-           "OpenSearch Agent Skills Hackathon -- everything below runs live.", top=True)
+           "OpenSearch Agent Skills Hackathon -- every command below runs live.", top=True)
 
     # ---- ACT 1 -----------------------------------------------------------
-    banner("ACT 1 -- Two incidents. The same 5x spike. One is real.\n"
-           "The other never happened.")
+    banner("ACT 1 -- Two incidents. The same story: p99 through the roof.\n"
+           "One is real. The other never happened.")
     run(["scripts/seed_logs.py", "--scenario", "real-spike", "--recreate"] + ep)
     run(["scripts/seed_logs.py", "--scenario", "fake-spike", "--recreate"] + ep)
-    banner("Both indices show p99 rising ~5x. A threshold cannot tell them apart,\n"
+    banner("Both spikes trip the same alert. It cannot tell them apart,\n"
            "and 'why is it slow?' is already the wrong first question.\n"
            "The first question is whether the spike is real.")
 
@@ -185,7 +202,7 @@ def main() -> int:
     banner("ACT 2 -- Gate 1 does not inspect the observation.\n"
            "It tries to refute it, eight different ways.")
     run([f"{SKILL}/audit_window.py", "--index", "unclosed-fake-spike"] + ep)
-    banner("ARTIFACT: the 5x spike is a percentile over almost no data.\n"
+    banner("ARTIFACT: that spike is a percentile over almost no data.\n"
            "No investigation should start from this premise --\n"
            "and the report says which story explained it.")
     run([f"{SKILL}/audit_window.py", "--index", "unclosed-real-spike"] + ep)
