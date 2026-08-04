@@ -7,170 +7,172 @@ that stays green is a mutation nothing detects: a hole in the tests rather
 than a harmless change. A row that ERRORs is a mutation that was never
 applied, which is not the same as one that was caught.
 
-baseline (unmutated): GREEN  254 passed in 1.51s
+baseline (unmutated): GREEN  255 passed in 1.52s
 
 -- Gate 1 -- the premise audit (6)
 
   [RED     ] decide(): let an incomplete sweep grant a pass
-             7 failed, 247 passed in 1.49s
+             7 failed, 248 passed in 1.60s
   [RED     ] population_shift: remove the small-sample independence guard
-             1 failed, 253 passed in 1.52s
+             1 failed, 254 passed in 1.80s
   [RED     ] ProbeResult: allow COULD_NOT_RUN without naming what is missing
-             1 failed, 253 passed in 1.49s
+             1 failed, 254 passed in 1.82s
   [RED     ] unanchored_report: treat a report naming no moment as answerable
-             2 failed, 252 passed in 1.61s
+             2 failed, 253 passed in 2.39s
   [RED     ] window_provenance: let a self-selected window earn a pass
-             1 failed, 253 passed in 1.55s
+             1 failed, 254 passed in 1.89s
   [RED     ] observation_moment: stop checking whether the window had finished
-             9 failed, 245 passed in 1.53s
+             9 failed, 246 passed in 1.95s
 
--- Gates 1(ruler), 2 and 3 -- traversal, closure, magnitude (19)
+-- Gates 1(ruler), 2 and 3 -- traversal, closure, magnitude (20)
 
   [RED     ] Gate 1: drop the estimator probe out of the sweep entirely
-             3 failed, 251 passed in 1.46s
+             3 failed, 252 passed in 1.95s
   [RED     ] Gate 1: stop refuting an effect only one estimator can see
-             1 failed, 253 passed in 1.44s
+             1 failed, 254 passed in 2.38s
   [RED     ] Gate 2 OPEN: let an unruled-out alternative stop blocking closure
-             4 failed, 250 passed in 2.05s
+             4 failed, 251 passed in 2.15s
   [RED     ] Gate 2 closed_chains(): block only on movable branches, not on live alternatives
-             1 failed, 253 passed in 1.58s
+             1 failed, 254 passed in 1.87s
   [RED     ] Gate 2 closed_chains(): stop treating an all-ruled-out node as the end of a chain
-             6 failed, 248 passed in 1.46s
+             6 failed, 249 passed in 1.65s
   [RED     ] Gate 2 Node: allow PENDING without naming what it awaits
-             1 failed, 253 passed in 1.43s
+             1 failed, 254 passed in 2.40s
   [RED     ] Gate 2 Node: allow PENDING without recording when its state was read
-             1 failed, 253 passed in 1.54s
+             1 failed, 254 passed in 1.91s
   [RED     ] Gate 2 Gate1Carryover: stop carrying an unverified premise into the tree
-             2 failed, 252 passed in 1.49s
+             2 failed, 253 passed in 1.69s
   [RED     ] Gate 2 Node: let an unconfirmed branch contribute to the magnitude arithmetic
-             2 failed, 252 passed in 1.57s
+             2 failed, 253 passed in 1.67s
   [RED     ] Gate 2 Node: let a branch nobody walked carry evidence anyway
-             1 failed, 253 passed in 1.56s
+             1 failed, 254 passed in 1.64s
   [RED     ] Gate 3 Node: allow the same effect to be counted at two depths
-             2 failed, 252 passed in 1.79s
+             2 failed, 253 passed in 1.63s
   [RED     ] Gate 3: widen the residual tolerance until anything passes
-             9 failed, 245 passed in 1.63s
+             9 failed, 246 passed in 1.91s
   [RED     ] Gate 3: stop rejecting explanations that overshoot the effect
-             2 failed, 252 passed in 1.82s
+             2 failed, 253 passed in 1.95s
   [RED     ] Gate 3: treat an unmeasured confirmed branch as if it explained nothing
-             1 failed, 253 passed in 1.96s
+             1 failed, 254 passed in 2.14s
   [RED     ] Gate 3 closes(): ignore the magnitude verdict
-             2 failed, 252 passed in 3.63s
+             2 failed, 253 passed in 2.78s
   [RED     ] Gate 3 Node: let a branch that restates the observation account for it
-             1 failed, 253 passed in 1.63s
+             1 failed, 254 passed in 2.33s
   [RED     ] Gate 3: count a descriptive branch as a missing measurement
-             2 failed, 252 passed in 1.89s
+             2 failed, 253 passed in 5.03s
   [RED     ] Gate 3 closes(): ignore everything Gate 2 left open
-             2 failed, 252 passed in 1.76s
+             2 failed, 253 passed in 1.96s
   [RED     ] Gate 3: claim a residual finer than the ruler that measured it
-             2 failed, 252 passed in 1.69s
+             2 failed, 253 passed in 1.92s
+  [RED     ] carriers are ranked by absolute size, as the review suggested
+             1 failed, 254 passed in 2.25s
 
 -- The scan anchor -- which clock chose the window (9)
 
   [RED     ] anchor back on the wall clock
-             4 failed, 250 passed in 1.83s
+             4 failed, 251 passed in 2.39s
   [RED     ] --as-of silently ignored
-             2 failed, 252 passed in 1.86s
+             2 failed, 253 passed in 2.27s
   [RED     ] right edge left unaligned (bucket containing the newest doc gets cut)
-             9 failed, 245 passed in 1.49s
+             9 failed, 246 passed in 2.19s
   [RED     ] right edge floored instead of ceiled (newest bucket dropped)
-             9 failed, 245 passed in 1.51s
+             9 failed, 246 passed in 2.13s
   [RED     ] left edge left unaligned (oldest bucket sliced -- the original defect)
-             9 failed, 245 passed in 1.58s
+             9 failed, 246 passed in 1.87s
   [RED     ] empty index falls back to now instead of refusing
-             1 failed, 253 passed in 1.76s
+             1 failed, 254 passed in 1.64s
   [RED     ] bucket_stats queries something other than the resolved edges
-             1 failed, 253 passed in 1.79s
+             1 failed, 254 passed in 1.68s
   [RED     ] the clock is resolved but never printed
-             1 failed, 253 passed in 1.73s
+             1 failed, 254 passed in 2.02s
   [RED     ] the report names a window but not the clock that chose it
-             1 failed, 253 passed in 1.65s
+             1 failed, 254 passed in 1.95s
 
 -- The reporter's reading -- reconstructed rather than picked (8)
 
   [RED     ] the ingest-clock filter is dropped (reads the settled window instead)
-             1 failed, 253 passed in 2.01s
+             1 failed, 254 passed in 2.20s
   [RED     ] reconstructs a different statistic than the claim is about
-             1 failed, 253 passed in 2.55s
+             1 failed, 254 passed in 1.96s
   [RED     ] an index with one clock silently reconstructs anyway
-             1 failed, 253 passed in 2.99s
+             1 failed, 254 passed in 2.42s
   [RED     ] a matching reconstruction clears the early report (the escape hatch)
-             1 failed, 253 passed in 1.69s
+             1 failed, 254 passed in 2.61s
   [RED     ] the reconstruction is called what the reporter saw
-             1 failed, 253 passed in 1.71s
+             1 failed, 254 passed in 2.36s
   [RED     ] an unreconstructable gap is described as small rather than unquantified
-             1 failed, 253 passed in 1.68s
+             1 failed, 254 passed in 2.17s
   [RED     ] the reconstruction is computed but never printed
-             4 failed, 250 passed in 1.70s
+             4 failed, 251 passed in 1.88s
   [RED     ] no documents ingested by then is read as a zero rather than named
-             1 failed, 253 passed in 1.58s
+             1 failed, 254 passed in 2.04s
 
 -- The concentration null -- what a meaningless label can produce (3)
 
   [RED     ] stop measuring each group against its own normal (keep the bare gap)
-             2 failed, 252 passed in 1.65s
+             2 failed, 253 passed in 1.76s
   [RED     ] build the null by shuffling labels instead of redrawing each group
-             2 failed, 252 passed in 2.98s
+             2 failed, 253 passed in 1.90s
   [RED     ] accept a baseline too thin to establish a normal, and answer the weaker question
-             3 failed, 251 passed in 2.31s
+             3 failed, 252 passed in 1.71s
 
 -- IMMATERIAL -- the state that must not become an escape hatch (10)
 
   [RED     ] an unmeasured branch becomes immaterial (the escape hatch)
-             1 failed, 253 passed in 1.74s
+             1 failed, 254 passed in 1.69s
   [RED     ] a zero effect divides instead of declining
-             5 failed, 249 passed in 1.44s
+             5 failed, 250 passed in 1.95s
   [RED     ] the bar becomes absolute instead of a share of the effect
-             2 failed, 252 passed in 1.61s
+             2 failed, 253 passed in 4.82s
   [RED     ] at the floor counts as immaterial
-             1 failed, 253 passed in 1.65s
+             1 failed, 254 passed in 1.93s
   [RED     ] a widened tolerance is ignored
-             1 failed, 253 passed in 1.56s
+             1 failed, 254 passed in 2.23s
   [RED     ] a negative effect is read as having no size
-             1 failed, 253 passed in 1.54s
+             1 failed, 254 passed in 2.11s
   [RED     ] IMMATERIAL slips into the open set and blocks chains again
-             2 failed, 252 passed in 1.47s
+             2 failed, 253 passed in 2.20s
   [RED     ] IMMATERIAL stops being disposed
-             2 failed, 252 passed in 1.45s
+             2 failed, 253 passed in 2.22s
   [RED     ] IMMATERIAL no longer has to record what it measured
-             1 failed, 253 passed in 1.57s
+             1 failed, 254 passed in 1.80s
   [RED     ] an unmeasurable dimension is called immaterial rather than left open
-             2 failed, 252 passed in 1.81s
+             2 failed, 253 passed in 2.26s
 
 -- The shape reading -- a signed ratio, and wording that matches its numbers (2)
 
   [RED     ] the signed ratio gets the abs() the review suggested
-             1 failed, 253 passed in 1.56s
+             1 failed, 254 passed in 3.48s
   [RED     ] a median that moved against the tail is called held again
-             1 failed, 253 passed in 1.53s
+             1 failed, 254 passed in 2.02s
 
 -- The sampler -- a truncation flag that must stay live (1)
 
   [RED     ] the truncation flag is wired shut
-             2 failed, 252 passed in 1.43s
+             2 failed, 253 passed in 1.97s
 
 -- The transport -- credentials, TLS, and saying which was used (10)
 
   [RED     ] the password becomes printable again
-             1 failed, 253 passed in 1.64s
+             1 failed, 254 passed in 1.87s
   [RED     ] half a credential is sent when the password is absent
-             1 failed, 253 passed in 1.46s
+             1 failed, 254 passed in 1.64s
   [RED     ] a run that skipped certificate verification stops saying so
-             1 failed, 253 passed in 1.44s
+             1 failed, 254 passed in 1.89s
   [RED     ] verification is silently skipped on every TLS connection
-             1 failed, 253 passed in 1.58s
+             1 failed, 254 passed in 1.92s
   [RED     ] a username with no password in the environment is accepted
-             1 failed, 253 passed in 1.60s
+             1 failed, 254 passed in 1.69s
   [RED     ] the Authorization header is built and never attached
-             1 failed, 253 passed in 1.54s
+             1 failed, 254 passed in 1.62s
   [RED     ] the TLS context is computed and never passed to the connection
-             1 failed, 253 passed in 1.41s
+             1 failed, 254 passed in 1.71s
   [RED     ] a plaintext request to a TLS port goes back to being a traceback
-             1 failed, 253 passed in 1.42s
+             1 failed, 254 passed in 2.25s
   [RED     ] a 401 stops naming the credential it wants
-             2 failed, 252 passed in 1.76s
+             2 failed, 253 passed in 2.11s
   [RED     ] the second transport comes back, and it cannot authenticate
-             3 failed, 251 passed in 6.08s
+             3 failed, 252 passed in 6.68s
 
-mutations applied: 68    survived (undetected): 0    never applied: 0
-restored suite: GREEN  254 passed in 1.70s
+mutations applied: 69    survived (undetected): 0    never applied: 0
+restored suite: GREEN  255 passed in 1.89s

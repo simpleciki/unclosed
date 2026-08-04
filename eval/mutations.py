@@ -253,6 +253,10 @@ MUTATIONS = [
      '            statement, NodeState.INCONCLUSIVE, probe=f"grouped the focus window by `{dim}`",',
      '            statement, NodeState.IMMATERIAL, probe=f"grouped the focus window by `{dim}`",'),
 
+    ("gates", "carriers are ranked by absolute size, as the review suggested", ASSEMBLE,
+     "        carriers.sort(key=lambda n: -n.magnitude_accounted)",
+     "        carriers.sort(key=lambda n: -abs(n.magnitude_accounted))"),
+
     # -- The shape reading and the sampler's truncation flag ----------------
     ("shape", "the signed ratio gets the abs() the review suggested", ASSEMBLE,
      "    share = median_shift / observed_effect if observed_effect else 0.0",
