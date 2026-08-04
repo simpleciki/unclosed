@@ -253,6 +253,10 @@ MUTATIONS = [
      '            statement, NodeState.INCONCLUSIVE, probe=f"grouped the focus window by `{dim}`",',
      '            statement, NodeState.IMMATERIAL, probe=f"grouped the focus window by `{dim}`",'),
 
+    ("scan-anchor", "a moment without a timezone is quietly accepted again", AUDIT_WINDOW,
+     "    if dt.tzinfo is None:",
+     "    if False:"),
+
     ("gates", "carriers are ranked by absolute size, as the review suggested", ASSEMBLE,
      "        carriers.sort(key=lambda n: -n.magnitude_accounted)",
      "        carriers.sort(key=lambda n: -abs(n.magnitude_accounted))"),
