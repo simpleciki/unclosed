@@ -14,7 +14,9 @@ Requires the demo cluster:
 
     docker start unclosed-opensearch           # 127.0.0.1:9250
 
-ASCII output only.
+ASCII output only. The verdict words are colored where the terminal accepts
+ANSI sequences (escape codes are themselves ASCII); anywhere it does not,
+the output falls back to plain text unchanged. --color forces it on.
 """
 
 from __future__ import annotations
@@ -35,13 +37,73 @@ WIDTH = 78
 PAUSE = None  # None = wait for Enter; number = seconds
 
 
+def _vt_enabled():
+    """Can this stdout take ANSI sequences?
+
+    Windows Terminal and modern shells already accept them; the legacy console
+    needs ENABLE_VIRTUAL_TERMINAL_PROCESSING flipped once. If that cannot be
+    done, the answer is no and everything prints plain -- a take with no color
+    beats a take full of raw escape codes.
+    """
+    if not sys.stdout.isatty():
+        return False
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.GetStdHandle(-11)
+    mode = ctypes.c_ulong()
+    if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+        return False
+    return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+
+
+COLOR = False  # decided in main(), after --color is parsed
+
+DIM = "90"     # frame lines: recede, so the words carry the screen
+CMD = "96"     # commands: tell "what was typed" from "what came back"
+HEAD = "1;96"  # the title and the ACT headings
+
+#: The sequence the video exists to show. Red for a premise that failed the
+#: audit, yellow for the two open states, green for the one earned pass.
+VERDICTS = {
+    "ARTIFACT": "1;91",
+    "UNDECIDABLE": "1;93",
+    "NOT CLOSED": "1;93",
+    "SUBSTANTIATED": "1;92",
+}
+
+
+def _c(code, text):
+    return f"\x1b[{code}m{text}\x1b[0m" if COLOR else text
+
+
+def _verdicts(line):
+    """Color the verdict words wherever they appear -- banner or tool output.
+
+    The tool's own reports stay untouched on disk and in the PR; this recolors
+    the demo's forwarding of them, nothing upstream.
+    """
+    for word, code in VERDICTS.items():
+        if word in line:
+            line = line.replace(word, _c(code, word))
+    return line
+
+
 def banner(text, top=False):
     print()
-    print("=" * WIDTH)
+    print(_c(DIM, "=" * WIDTH))
+    head = top
     for para in text.split("\n"):
         for line in textwrap.wrap(para, WIDTH - 4) or [""]:
+            if head:
+                line, head = _c(HEAD, line), False
+            elif line.startswith("ACT "):
+                line = _c(HEAD, line)
+            else:
+                line = _verdicts(line)
             print("  " + line)
-    print("=" * WIDTH)
+    print(_c(DIM, "=" * WIDTH))
     if PAUSE is None:
         input()
     else:
@@ -52,11 +114,16 @@ def run(args, quiet=False):
     cmd = ["uv", "run", "python"] + args
     if not quiet:
         print()
-        print("$ " + "python " + " ".join(args))
+        print(_c(CMD, "$ " + "python " + " ".join(args)))
         print()
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=quiet, text=True, shell=True)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, shell=True)
+    if not quiet:
+        for line in (proc.stdout or "").splitlines():
+            print(_verdicts(line))
+        if proc.stderr:
+            print(proc.stderr, end="")
     if proc.returncode != 0:
-        print(f"COMMAND FAILED ({proc.returncode}) -- aborting the take.")
+        print(_c("1;91", f"COMMAND FAILED ({proc.returncode}) -- aborting the take."))
         if quiet:
             print(proc.stdout or "", proc.stderr or "")
         sys.exit(1)
@@ -68,19 +135,23 @@ def excerpt(path, start_marker, end_marker, label):
     i = text.index(start_marker)
     j = text.index(end_marker, i)
     print()
-    print(f"$ (from {path})")
+    print(_c(CMD, f"$ (from {path})"))
     print()
-    print(text[i:j].rstrip())
+    for line in text[i:j].rstrip().splitlines():
+        print(_verdicts(line))
 
 
 def main() -> int:
-    global PAUSE
+    global PAUSE, COLOR
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--auto", type=float, default=None, metavar="SECONDS",
                     help="advance automatically; omit to advance with Enter")
     ap.add_argument("--endpoint", default="http://127.0.0.1:9250")
+    ap.add_argument("--color", action="store_true",
+                    help="force ANSI color even when stdout looks like a pipe")
     args = ap.parse_args()
     PAUSE = args.auto
+    COLOR = True if args.color else _vt_enabled()
     ep = ["--endpoint", args.endpoint]
 
     banner("unclosed\n\n"
@@ -153,12 +224,20 @@ def main() -> int:
     excerpt("examples/miss-rate.txt", "  fixed corpus:", "these are not averaged".capitalize(),
             "miss-rate.txt, section 6")
     print()
-    print("$ (from examples/mutation-verification.txt)")
+    print(_c(CMD, "$ (from examples/mutation-verification.txt)"))
     print()
     tail = (ROOT / "examples/mutation-verification.txt").read_text(encoding="utf-8").strip().splitlines()
     print("\n".join(tail[-2:]))
+    # The banner quotes the capture just printed, never a number of its own:
+    # a hardcoded count here already went stale once (65, while the file said
+    # 69) -- narration contradicting its evidence line, in the demo of a tool
+    # whose whole point is refusing exactly that.
+    counts = re.search(r"applied: (\d+)\s+survived \(undetected\): (\d+)", "\n".join(tail[-2:]))
+    broken = (f"{counts.group(1)} load-bearing rules were broken on purpose; "
+              f"{counts.group(2)} survived the suite." if counts else
+              "Every load-bearing rule was broken on purpose; the suite caught each one.")
     banner("Misses and false alarms are never averaged into one number.\n"
-           "65 load-bearing rules were broken on purpose; 0 survived the suite.\n"
+           + broken + "\n"
            "And an A/B against NOT having the skill is published too --\n"
            "including the part where the unaided agent fabricated nothing.")
 

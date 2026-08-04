@@ -157,14 +157,14 @@ otherwise tell whether the cluster reached is the cluster named.
 
 A test that has never failed has not been shown to test anything.
 [`eval/mutations.py`](eval/mutations.py) removes one load-bearing rule at a time
--- 65 of them -- and reruns the **whole** suite after each. Pointing a mutation
+-- 69 of them -- and reruns the **whole** suite after each. Pointing a mutation
 at one hand-picked test would let the author decide what counts as caught. A
 mutation whose anchor text is not found is an error rather than a skip, because
 a patch that anchors to text which is not there applies nothing and reports
 success.
 
 ```bash
-uv run python eval/mutations.py --list     # the 65, grouped, runs nothing
+uv run python eval/mutations.py --list     # the 69, grouped, runs nothing
 uv run python eval/mutations.py            # applies them, writes the capture
 ```
 
