@@ -253,6 +253,17 @@ MUTATIONS = [
      '            statement, NodeState.INCONCLUSIVE, probe=f"grouped the focus window by `{dim}`",',
      '            statement, NodeState.IMMATERIAL, probe=f"grouped the focus window by `{dim}`",'),
 
+    # -- The shape reading and the sampler's truncation flag ----------------
+    ("shape", "the signed ratio gets the abs() the review suggested", ASSEMBLE,
+     "    share = median_shift / observed_effect if observed_effect else 0.0",
+     "    share = abs(median_shift / observed_effect) if observed_effect else 0.0"),
+    ("shape", "a median that moved against the tail is called held again", ASSEMBLE,
+     "    if share <= -MEDIAN_SHIFT_SHARE:",
+     "    if False:"),
+    ("sampler", "the truncation flag is wired shut", ASSEMBLE,
+     "    return rows, bool(total and total > len(rows))",
+     "    return rows, False"),
+
     # -- The transport, which is the whole of the portability claim ---------
     ("transport", "the password becomes printable again", AUDIT_WINDOW,
      "                f\"password={'***' if self.password else None}, \"",
@@ -293,7 +304,7 @@ MUTATIONS = [
 ]
 
 GROUPS = ["gate1", "gates", "scan-anchor", "as-reported", "concentration", "immaterial",
-          "transport"]
+          "shape", "sampler", "transport"]
 
 HEADINGS = {
     "gate1": "Gate 1 -- the premise audit",
@@ -302,6 +313,8 @@ HEADINGS = {
     "as-reported": "The reporter's reading -- reconstructed rather than picked",
     "concentration": "The concentration null -- what a meaningless label can produce",
     "immaterial": "IMMATERIAL -- the state that must not become an escape hatch",
+    "shape": "The shape reading -- a signed ratio, and wording that matches its numbers",
+    "sampler": "The sampler -- a truncation flag that must stay live",
     "transport": "The transport -- credentials, TLS, and saying which was used",
 }
 
